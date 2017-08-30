@@ -1,0 +1,12 @@
+[package]
+name = "rust-pgn-tokenizer"
+version = "0.1.0"
+authors = ["Lakin Wecker <lakin@structuredabstraction.com>"]
+
+[dependencies]
+lazy_static = "*"
+regex = "^0.2"
+
+[dependencies.nom]
+version = "^3.2"
+features = ["regexp", "regexp_macros"]
