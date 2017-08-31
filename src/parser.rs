@@ -27,37 +27,6 @@ pub enum Token <'a> {
     Move(&'a [u8])
 }
 
-///-----------------------------------------------------------------------------
-/*named!(pub san_pawn_move_bare,  re_bytes_match_static!(r"[abcdefgh]{1}[12345678]{1}"));
-named!(pub san_pawn_capture_bare,  re_bytes_match_static!(r"[abcdefgh]{1}x[abcdefgh]{1}[12345678]{1}"));*/
-
-
-///-----------------------------------------------------------------------------
-/*named!(pub san_explicit_move,
-    alt_complete!(
-        san_pawn_move_bare |
-        san_pawn_capture_bare //|
-        //san_piece_move_bare |
-        //san_pawn_move |
-        //san_piece_move |
-        //san_pawn_capture
-    )
-);*/
-
-///-----------------------------------------------------------------------------
-/*named!(pub san_move<Token>,
-    map!(
-        alt_complete!(
-            san_explicit_move |
-            san_explicit_move
-            //san_castle_queen_side |
-            //san_castle_king_side |
-            //san_null_move
-        ),
-        |m| Token::Move(m)
-    )
-);*/
-
 pub const ROOK: u8 = 'R' as u8;
 pub const KNIGHT: u8 = 'N' as u8;
 pub const BISHOP: u8 = 'B' as u8;
@@ -90,6 +59,7 @@ pub const _0: u8 = '0' as u8;
 
 // TODO: Figure out better error handling
 pub const MOVE_PARSING_ERROR: u32 = 32;
+pub const MOVE_PARSING_ERROR_CURRENT: u32 = 33;
 
 pub fn is_file(i:u8) -> bool {
     return i >= A && i <= H;
@@ -127,95 +97,128 @@ pub fn is_zed(i:u8) -> bool {
 pub fn is_zero(i:u8) -> bool {
     return i == _0;
 }
+pub fn is_plus_or_hash(i:u8) -> bool {
+    return i == HASH || i == PLUS;
+}
+
+macro_rules! match_character {
+    ($name:ident, $($matcher:ident),+) => {
+        pub fn $name (incoming:&[u8]) -> Option<usize> {
+            let mut i: usize = 0;
+            $(
+                {
+                    if incoming.len() <= i || !$matcher(incoming[i]) {
+                        return None
+                    }
+                    i += 1
+                }
+            )*;
+            Some(i)
+        }
+    };
+}
+
+match_character![check, is_plus_or_hash];
+match_character![pawn_capture, is_file, is_capture, is_file, is_rank];
+match_character![pawn_move, is_file, is_rank];
+match_character![promotion, is_equals, is_piece];
 
 // e4 dxe4 e8=Q dxe8=Q
 pub fn san_pawn_move(i:&[u8]) -> IResult<&[u8], Token>{
-    let mut length = 0;
-    if i.len() > 3 && is_file(i[0]) && is_capture(i[1]) && is_file(i[2]) && is_rank(i[3]) {
-        length = 4;
-    } else if i.len() > 1 && is_file(i[0]) && is_rank(i[1]) {
-        length = 2;
-    } else {
-        length = 0;
+    let result = pawn_capture(i)
+    .or_else(|| pawn_move(i))
+    .and_then(|length| {
+        promotion(&i[length..])
+        .or_else(|| Some(0))
+        .and_then(|l2| {
+            let length = length + l2;
+            check(&i[length..])
+            .or_else(|| Some(0))
+            .and_then(|l3| Some(length + l3))
+        })
+    });
+    match result {
+        Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
+        None => return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR_CURRENT))
     }
-    if length == 0 {
-        return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR))
-    }
-    if i.len() > length + 1 && is_equals(i[length]) && is_piece(i[length+1]) {
-        length = length + 2;
-    }
-    if i.len() > length && (is_plus(i[length]) || is_hash(i[length])) {
-        length = length + 1;
-    }
-    IResult::Done(&i[length..], Token::Move(&i[0..length]))
 }
 
-// Nf3 Bb5 Nef3 N2f3 Nxf3 N2xf3+
+
+// Ng1xf3
+match_character![piece_capture_with_rank_and_file, is_piece, is_file, is_rank, is_capture, is_file, is_rank];
+// N1xf3
+match_character![piece_capture_with_rank, is_piece, is_rank, is_capture, is_file, is_rank];
+// Ngxf3
+match_character![piece_capture_with_file, is_piece, is_file, is_capture, is_file, is_rank];
+// Nxf3
+match_character![piece_capture, is_piece, is_capture, is_file, is_rank];
+// Ng1f3
+match_character![piece_move_with_rank_and_file, is_piece, is_file, is_rank, is_file, is_rank];
+// N1f3
+match_character![piece_move_with_rank, is_piece, is_rank, is_file, is_rank];
+// Ngf3
+match_character![piece_move_with_file, is_piece, is_file, is_file, is_rank];
+// Nf3
+match_character![piece_move, is_piece, is_file, is_rank];
+
 pub fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token>{
-    let mut length = 0;
-    if i.len() > 5 && is_piece(i[0]) && is_file(i[1]) && is_rank(i[2]) && is_capture(i[3]) && is_file(i[4]) && is_rank(i[5]) {
-        length = 6;
-    } else if i.len() > 4 && is_piece(i[0]) && is_file(i[1]) && is_rank(i[2]) && is_file(i[3]) && is_rank(i[4]) {
-        length = 5;
-    } else if i.len() > 4 && is_piece(i[0]) && (is_file(i[1]) || is_rank(i[1])) && is_capture(i[2]) && is_file(i[3]) && is_rank(i[4]) {
-        length = 5;
-    } else if i.len() > 3 && is_piece(i[0]) && (is_file(i[1]) || is_rank(i[1]) || is_capture(i[1])) && is_file(i[2]) && is_rank(i[3]) {
-        length = 4;
-    } else if i.len() > 2 && is_piece(i[0]) && is_file(i[1]) && is_rank(i[2]) {
-        length = 3;
-    } else {
-        length = 0;
+    let result = piece_capture_with_rank_and_file(i)
+    .or_else(|| piece_capture_with_rank(i))
+    .or_else(|| piece_capture_with_file(i))
+    .or_else(|| piece_capture(i))
+    .or_else(|| piece_move_with_rank_and_file(i))
+    .or_else(|| piece_move_with_rank(i))
+    .or_else(|| piece_move_with_file(i))
+    .or_else(|| piece_move(i))
+    .and_then(|length| {
+        check(&i[length..])
+        .or_else(|| Some(0))
+        .and_then(|l2| Some(length + l2))
+    });
+    match result {
+        Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
+        None => return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR_CURRENT))
     }
-    if length == 0 {
-        return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR))
-    }
-    if i.len() > length && (is_plus(i[length]) || is_hash(i[length])) {
-        length = length + 1;
-    }
-    IResult::Done(&i[length..], Token::Move(&i[0..length]))
 }
 
-// O-O O-O-O O-O+ O-O-O+
+match_character![king_side_castles, is_o, is_dash, is_o];
+match_character![queen_side_castles, is_o, is_dash, is_o, is_dash, is_o];
+
 pub fn san_castles(i:&[u8]) -> IResult<&[u8], Token>{
-    let mut length = 0;
-    if i.len() > 4 && is_o(i[0]) && is_dash(i[1]) && is_o(i[2]) && is_dash(i[3]) && is_o(i[4]) {
-        length = 5;
-    } else if i.len() > 2 && is_o(i[0]) && is_dash(i[1]) && is_o(i[2]) {
-        length = 3;
-    } else {
-        length = 0;
+    let result = queen_side_castles(i)
+    .or_else(|| king_side_castles(i))
+    .and_then(|length| {
+        return check(&i[length..])
+        .or_else(|| Some(0))
+        .and_then(|extra_length| Some(length+extra_length));
+    });
+    match result {
+        Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
+        None => return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR_CURRENT))
     }
-    if length == 0 {
-        return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR))
-    }
-    if i.len() > length && (is_plus(i[length]) || is_hash(i[length])) {
-        length = length + 1;
-    }
-    IResult::Done(&i[length..], Token::Move(&i[0..length]))
 }
 
-// -- Z0
+// Z0
+match_character![null_move_z0, is_zed, is_zero];
+// --
+match_character![null_move_dash_dash, is_dash, is_dash];
+
 pub fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
-    let mut length = 0;
-    if i.len() > 1 && is_dash(i[0]) && is_dash(i[1]) {
-        length = 2;
-    } else if i.len() > 1 && is_zed(i[0]) && is_zero(i[1]) {
-        length = 2;
-    } else {
-        length = 0;
+    let result = null_move_dash_dash(i)
+    .or_else(|| null_move_z0(i))
+    .and_then(|length| {
+        return check(&i[length..])
+        .or_else(|| Some(0))
+        .and_then(|extra_length| Some(length+extra_length));
+    });
+    match result {
+        Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
+        None => return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR_CURRENT))
     }
-    if length == 0 {
-        return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR))
-    }
-    if i.len() > length && (is_plus(i[length]) || is_hash(i[length])) {
-        length = length + 1;
-    }
-    IResult::Done(&i[length..], Token::Move(&i[0..length]))
 }
 
 
 pub fn san_move(i:&[u8]) -> IResult<&[u8], Token>{
-    // e4 Nf3 dxe4 dxe8=Q N2f3 Ndf3
   match i[0] {
       ROOK | KNIGHT | BISHOP | QUEEN | KING => san_piece_move(i),
       A...H => san_pawn_move(i),
@@ -290,6 +293,7 @@ mod tests {
         assert_eq!(Done(&b""[..], Token::Move(&b"O-O"[..])), san_move(&b"O-O"[..]));
         assert_eq!(Done(&b""[..], Token::Move(&b"O-O-O"[..])), san_move(&b"O-O-O"[..]));
         assert_eq!(Done(&b""[..], Token::Move(&b"O-O+"[..])), san_move(&b"O-O+"[..]));
+        assert_eq!(Done(&b""[..], Token::Move(&b"O-O#"[..])), san_move(&b"O-O#"[..]));
         assert_eq!(Done(&b""[..], Token::Move(&b"O-O-O+"[..])), san_move(&b"O-O-O+"[..]));
         assert_eq!(Done(&b""[..], Token::Move(&b"O-O-O#"[..])), san_move(&b"O-O-O#"[..]));
     }
