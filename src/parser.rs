@@ -28,7 +28,12 @@ pub enum Token <'a> {
 }
 
 // TODO: Figure out better error handling
-const SAN_PARSING_ERROR: u32 = 32;
+const SAN_INVALID_PAWN_MOVE: u32 = 1;
+const SAN_INVALID_PIECE_MOVE: u32 = 2;
+const SAN_INVALID_CASTLES: u32 = 3;
+const SAN_INVALID_NULL_MOVE: u32 = 4;
+const SAN_EMPTY_INPUT: u32 = 5;
+const SAN_INVALID_CHARACTER: u32 = 6;
 
 fn is_file(i:u8) -> bool {
     return i >= b'a' && i <= b'h';
@@ -102,7 +107,7 @@ fn san_pawn_move(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
+        None => return IResult::Error(ErrorKind::Custom(SAN_INVALID_PAWN_MOVE))
     }
 }
 
@@ -140,7 +145,7 @@ fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
+        None => return IResult::Error(ErrorKind::Custom(SAN_INVALID_PIECE_MOVE))
     }
 }
 
@@ -157,7 +162,7 @@ fn san_castles(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
+        None => return IResult::Error(ErrorKind::Custom(SAN_INVALID_CASTLES))
     }
 }
 
@@ -176,21 +181,21 @@ fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
+        None => return IResult::Error(ErrorKind::Custom(SAN_INVALID_NULL_MOVE))
     }
 }
 
 
 pub fn san_move(i:&[u8]) -> IResult<&[u8], Token>{
     if i.len() < 1 {
-      return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR));
+      return IResult::Error(ErrorKind::Custom(SAN_EMPTY_INPUT));
     }
     match i[0] {
         b'R' | b'N' | b'B' | b'Q' | b'K' => san_piece_move(i),
         b'a'...b'h' => san_pawn_move(i),
         b'O' => san_castles(i),
         b'-' | b'Z' => san_null_move(i),
-        _ => IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
+        _ => IResult::Error(ErrorKind::Custom(SAN_INVALID_CHARACTER))
     }
 }
 
