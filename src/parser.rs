@@ -182,14 +182,16 @@ fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
 
 
 pub fn san_move(i:&[u8]) -> IResult<&[u8], Token>{
-  match i[0] {
-      b'R' | b'N' | b'B' | b'Q' | b'K' => san_piece_move(i),
-      b'a'...b'h' => san_pawn_move(i),
-      b'O' => san_castles(i),
-      b'-' | b'Z' => san_null_move(i),
-      _ => IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
-  }
-  
+    if i.len() < 1 {
+      return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR));
+    }
+    match i[0] {
+        b'R' | b'N' | b'B' | b'Q' | b'K' => san_piece_move(i),
+        b'a'...b'h' => san_pawn_move(i),
+        b'O' => san_castles(i),
+        b'-' | b'Z' => san_null_move(i),
+        _ => IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
+    }
 }
 
 
