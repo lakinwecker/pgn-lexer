@@ -28,8 +28,7 @@ pub enum Token <'a> {
 }
 
 // TODO: Figure out better error handling
-const MOVE_PARSING_ERROR: u32 = 32;
-const MOVE_PARSING_ERROR_CURRENT: u32 = 33;
+const SAN_PARSING_ERROR: u32 = 32;
 
 fn is_file(i:u8) -> bool {
     return i >= b'a' && i <= b'h';
@@ -103,7 +102,7 @@ fn san_pawn_move(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR_CURRENT))
+        None => return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
     }
 }
 
@@ -141,7 +140,7 @@ fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR_CURRENT))
+        None => return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
     }
 }
 
@@ -158,7 +157,7 @@ fn san_castles(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR_CURRENT))
+        None => return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
     }
 }
 
@@ -177,7 +176,7 @@ fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR_CURRENT))
+        None => return IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
     }
 }
 
@@ -188,7 +187,7 @@ pub fn san_move(i:&[u8]) -> IResult<&[u8], Token>{
       b'a'...b'h' => san_pawn_move(i),
       b'O' => san_castles(i),
       b'-' | b'Z' => san_null_move(i),
-      _ => IResult::Error(ErrorKind::Custom(MOVE_PARSING_ERROR))
+      _ => IResult::Error(ErrorKind::Custom(SAN_PARSING_ERROR))
   }
   
 }
