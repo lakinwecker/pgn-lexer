@@ -27,83 +27,65 @@ pub enum Token <'a> {
     Move(&'a [u8])
 }
 
-pub const ROOK: u8 = 'R' as u8;
-pub const KNIGHT: u8 = 'N' as u8;
-pub const BISHOP: u8 = 'B' as u8;
-pub const QUEEN: u8 = 'Q' as u8;
-pub const KING: u8 = 'K' as u8;
-pub const A: u8 = 'a' as u8;
-pub const B: u8 = 'b' as u8;
-pub const C: u8 = 'c' as u8;
-pub const D: u8 = 'd' as u8;
-pub const E: u8 = 'e' as u8;
-pub const F: u8 = 'f' as u8;
-pub const G: u8 = 'g' as u8;
-pub const H: u8 = 'h' as u8;
-pub const _1: u8 = '1' as u8;
-pub const _2: u8 = '2' as u8;
-pub const _3: u8 = '3' as u8;
-pub const _4: u8 = '4' as u8;
-pub const _5: u8 = '5' as u8;
-pub const _6: u8 = '6' as u8;
-pub const _7: u8 = '7' as u8;
-pub const _8: u8 = '8' as u8;
-pub const X: u8 = 'x' as u8;
-pub const EQUALS: u8 = '=' as u8;
-pub const PLUS: u8 = '+' as u8;
-pub const O: u8 = 'O' as u8;
-pub const DASH: u8 = '-' as u8;
-pub const HASH: u8 = '#' as u8;
-pub const Z: u8 = 'Z' as u8;
-pub const _0: u8 = '0' as u8;
+const ROOK: u8 = 'R' as u8;
+const KNIGHT: u8 = 'N' as u8;
+const BISHOP: u8 = 'B' as u8;
+const QUEEN: u8 = 'Q' as u8;
+const KING: u8 = 'K' as u8;
+const A: u8 = 'a' as u8;
+const H: u8 = 'h' as u8;
+const _1: u8 = '1' as u8;
+const _8: u8 = '8' as u8;
+const X: u8 = 'x' as u8;
+const EQUALS: u8 = '=' as u8;
+const PLUS: u8 = '+' as u8;
+const O: u8 = 'O' as u8;
+const DASH: u8 = '-' as u8;
+const HASH: u8 = '#' as u8;
+const Z: u8 = 'Z' as u8;
+const _0: u8 = '0' as u8;
 
 // TODO: Figure out better error handling
-pub const MOVE_PARSING_ERROR: u32 = 32;
-pub const MOVE_PARSING_ERROR_CURRENT: u32 = 33;
+const MOVE_PARSING_ERROR: u32 = 32;
+const MOVE_PARSING_ERROR_CURRENT: u32 = 33;
 
-pub fn is_file(i:u8) -> bool {
+fn is_file(i:u8) -> bool {
     return i >= A && i <= H;
 }
-pub fn is_rank(i:u8) -> bool {
+fn is_rank(i:u8) -> bool {
     return i >= _1 && i <= _8;
 }
-pub fn is_capture(i:u8) -> bool {
+fn is_capture(i:u8) -> bool {
     return i == X;
 }
-pub fn is_equals(i:u8) -> bool {
+fn is_equals(i:u8) -> bool {
     return i == EQUALS;
 }
-pub fn is_plus(i:u8) -> bool {
-    return i == PLUS;
-}
-pub fn is_piece(i:u8) -> bool {
+fn is_piece(i:u8) -> bool {
     return i == ROOK || i == KNIGHT || i == BISHOP || i == QUEEN || i == KING;
 }
 
-pub fn is_o(i:u8) -> bool {
+fn is_o(i:u8) -> bool {
     return i == O;
 }
 
-pub fn is_dash(i:u8) -> bool {
+fn is_dash(i:u8) -> bool {
     return i == DASH;
 }
 
-pub fn is_hash(i:u8) -> bool {
-    return i == HASH;
-}
-pub fn is_zed(i:u8) -> bool {
+fn is_zed(i:u8) -> bool {
     return i == Z;
 }
-pub fn is_zero(i:u8) -> bool {
+fn is_zero(i:u8) -> bool {
     return i == _0;
 }
-pub fn is_plus_or_hash(i:u8) -> bool {
+fn is_plus_or_hash(i:u8) -> bool {
     return i == HASH || i == PLUS;
 }
 
 macro_rules! match_character {
     ($name:ident, $($matcher:ident),+) => {
-        pub fn $name (incoming:&[u8]) -> Option<usize> {
+        fn $name (incoming:&[u8]) -> Option<usize> {
             let mut i: usize = 0;
             $(
                 {
@@ -124,7 +106,7 @@ match_character![pawn_move, is_file, is_rank];
 match_character![promotion, is_equals, is_piece];
 
 // e4 dxe4 e8=Q dxe8=Q
-pub fn san_pawn_move(i:&[u8]) -> IResult<&[u8], Token>{
+fn san_pawn_move(i:&[u8]) -> IResult<&[u8], Token>{
     let result = pawn_capture(i)
     .or_else(|| pawn_move(i))
     .and_then(|length| {
@@ -161,7 +143,7 @@ match_character![piece_move_with_file, is_piece, is_file, is_file, is_rank];
 // Nf3
 match_character![piece_move, is_piece, is_file, is_rank];
 
-pub fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token>{
+fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token>{
     let result = piece_capture_with_rank_and_file(i)
     .or_else(|| piece_capture_with_rank(i))
     .or_else(|| piece_capture_with_file(i))
@@ -184,7 +166,7 @@ pub fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token>{
 match_character![king_side_castles, is_o, is_dash, is_o];
 match_character![queen_side_castles, is_o, is_dash, is_o, is_dash, is_o];
 
-pub fn san_castles(i:&[u8]) -> IResult<&[u8], Token>{
+fn san_castles(i:&[u8]) -> IResult<&[u8], Token>{
     let result = queen_side_castles(i)
     .or_else(|| king_side_castles(i))
     .and_then(|length| {
@@ -203,7 +185,7 @@ match_character![null_move_z0, is_zed, is_zero];
 // --
 match_character![null_move_dash_dash, is_dash, is_dash];
 
-pub fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
+fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
     let result = null_move_dash_dash(i)
     .or_else(|| null_move_z0(i))
     .and_then(|length| {
