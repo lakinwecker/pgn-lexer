@@ -57,6 +57,10 @@ const PGN_GAME_RESULT_INVALID: u32 = 1051;
 const PGN_COMMENTARY_EMPTY: u32 = 1060;
 const PGN_COMMENTARY_INVALID: u32 = 1061;
 const PGN_COMMENTARY_TOO_LARGE: u32 = 1062;
+const PGN_TAG_PAIR_EMPTY: u32 = 1070;
+const PGN_TAG_PAIR_INVALID: u32 = 1071;
+const PGN_TAG_PAIR_INVALID_SYMBOL: u32 = 1072;
+const PGN_TAG_PAIR_INVALID_STRING: u32 = 1073;
 
 fn is_0(i:u8) -> bool { i == b'0' }
 fn is_1(i:u8) -> bool { i == b'1' }
@@ -75,6 +79,7 @@ fn is_rank(i:u8) -> bool { i >= b'1' && i <= b'8' }
 fn is_slash(i:u8) -> bool { i == b'/' }
 fn is_star(i:u8) -> bool { i == b'*' }
 fn is_uppercase_letter(i:u8) -> bool { i >= b'A' && i <= b'Z' }
+fn is_whitespace(i:u8) -> bool { i == b' ' || i == b'\n' || i == b'\r' || i == b'\t'  }
 fn is_zed(i:u8) -> bool { i == b'Z' }
 fn is_zero(i:u8) -> bool { i == b'0' }
 
@@ -219,7 +224,7 @@ pub fn san_move(i:&[u8]) -> IResult<&[u8], Token>{
 //
 // TODO: This does _not_ deal with utf-8
 const MAX_LENGTH: usize = 255;
-pub fn pgn_string_token(i:&[u8]) -> IResult<&[u8], &[u8]>{
+pub fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8]>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_STRING_EMPTY));
     }
@@ -292,7 +297,7 @@ pub fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token>{
     }
 }
 
-pub fn pgn_symbol_token(i:&[u8]) -> IResult<&[u8], &[u8]>{
+pub fn pgn_symbol(i:&[u8]) -> IResult<&[u8], &[u8]>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_SYMBOL_EMPTY));
     }
@@ -357,10 +362,42 @@ pub fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token>{
     IResult::Done(&i[length+1..], Token::Commentary(&i[1..length]))
 }
 
-// TODO: unsure if this is consistent. This is the only time I am
-//       parsing two tokens into a single token.  Perhaps string/symbol
-//       should not be a token, but rather just a parser.
+pub fn remove_whitespace(i:&[u8]) -> &[u8] {
+    let mut length = 0;
+    while length < i.len() && is_whitespace(i[length]) {
+        length += 1;
+    }
+    &i[length..]
+}
+
 pub fn pgn_tag_pair_token(i:&[u8]) -> IResult<&[u8], Token> {
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY));
+    }
+    if i[0] != b'[' {
+        return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID));
+    }
+    let i = remove_whitespace(&i[1..]);
+    match pgn_symbol(i) {
+        IResult::Done(i, symbol) => {
+            let i = remove_whitespace(i);
+            match pgn_string(i) {
+                IResult::Done(i, string) => {
+                    let i = remove_whitespace(i);
+                    let x = 0;
+                    if x < i.len() && i[x] == b']' {
+                        return IResult::Done(&i[1..], Token::TagPair(symbol, string));
+                    } else {
+                        return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID));
+                    }
+                },
+                IResult::Incomplete(x) => IResult::Incomplete(x),
+                _ => IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID_STRING))
+            }
+        },
+        IResult::Incomplete(x) => IResult::Incomplete(x),
+        _ => IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID_SYMBOL))
+    }
 }
 
 
@@ -492,10 +529,10 @@ mod tests {
 
     #[test]
     fn test_pgn_string_token() {
-        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_STRING_EMPTY)), pgn_string_token(b""));
-        assert_eq!(Done(&b""[..], &b"aaaaaaa"[..]), pgn_string_token(b"\"aaaaaaa\""));
-        assert_eq!(Done(&b""[..], &b"aaaaaaa \\\" aaaaaaa"[..]), pgn_string_token(b"\"aaaaaaa \\\" aaaaaaa\""));
-        assert_eq!(Done(&b""[..], &b"GER/CCM-E/01-C (GER)"[..]), pgn_string_token(b"\"GER/CCM-E/01-C (GER)\""));
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_STRING_EMPTY)), pgn_string(b""));
+        assert_eq!(Done(&b""[..], &b"aaaaaaa"[..]), pgn_string(b"\"aaaaaaa\""));
+        assert_eq!(Done(&b""[..], &b"aaaaaaa \\\" aaaaaaa"[..]), pgn_string(b"\"aaaaaaa \\\" aaaaaaa\""));
+        assert_eq!(Done(&b""[..], &b"GER/CCM-E/01-C (GER)"[..]), pgn_string(b"\"GER/CCM-E/01-C (GER)\""));
     }
 
     #[test]
@@ -516,12 +553,13 @@ mod tests {
 
     #[test]
     fn test_pgn_symbol_token() {
-        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_SYMBOL_EMPTY)), pgn_symbol_token(b""));
-        assert_eq!(Done(&b""[..], &b"sasd#_+#=:-"[..]), pgn_symbol_token(b"sasd#_+#=:-"));
-        assert_eq!(Done(&b"!()~{}[]"[..], &b"sasd#_+#=:-"[..]), pgn_symbol_token(b"sasd#_+#=:-!()~{}[]"));
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_SYMBOL_EMPTY)), pgn_symbol(b""));
+        assert_eq!(Done(&b""[..], &b"sasd#_+#=:-"[..]), pgn_symbol(b"sasd#_+#=:-"));
+        assert_eq!(Done(&b"!()~{}[]"[..], &b"sasd#_+#=:-"[..]), pgn_symbol(b"sasd#_+#=:-!()~{}[]"));
     }
     #[test]
     fn test_pgn_game_result_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_GAME_RESULT_EMPTY)), pgn_game_result_token(b""));
         assert_eq!(Done(&b""[..], Token::Result(b"1-0")), pgn_game_result_token(b"1-0"));
         assert_eq!(Done(&b""[..], Token::Result(b"0-1")), pgn_game_result_token(b"0-1"));
         assert_eq!(Done(&b""[..], Token::Result(b"1/2-1/2")), pgn_game_result_token(b"1/2-1/2"));
@@ -529,7 +567,14 @@ mod tests {
     }
     #[test]
     fn test_pgn_commentary_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_COMMENTARY_EMPTY)), pgn_commentary_token(b""));
         assert_eq!(Done(&b""[..], Token::Commentary(b"this is a comment")), pgn_commentary_token(b"{this is a comment}"));
         assert_eq!(Done(&b""[..], Token::Commentary(b"this is a\n comment")), pgn_commentary_token(b"{this is a\n comment}"));
+    }
+    #[test]
+    fn test_pgn_tag_pair_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY)), pgn_tag_pair_token(b""));
+        assert_eq!(Done(&b""[..], Token::TagPair(b"Event", b"?")), pgn_tag_pair_token(b"[Event \"?\"]"));
+        assert_eq!(Done(&b""[..], Token::TagPair(b"Event", b"Tony Rotella")), pgn_tag_pair_token(b"[Event \"Tony Rotella\"]"));
     }
 }
