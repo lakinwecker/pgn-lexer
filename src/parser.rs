@@ -24,50 +24,59 @@ use nom::*;
 ///-----------------------------------------------------------------------------
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum Token <'a> {
-    Move(&'a [u8])
+    Move(&'a [u8]),
+    Integer(&'a [u8]),
+    EscapeComment(&'a [u8]),
+    NAG(&'a [u8]),
+    Result(&'a [u8]),
+    Commentary(&'a [u8]),
+    TagPair(&'a [u8], &'a [u8]),
 }
 
 // TODO: Figure out better error handling
-const SAN_INVALID_PAWN_MOVE: u32 = 1;
-const SAN_INVALID_PIECE_MOVE: u32 = 2;
-const SAN_INVALID_CASTLES: u32 = 3;
-const SAN_INVALID_NULL_MOVE: u32 = 4;
+const SAN_PAWN_MOVE_INVALID: u32 = 1;
+const SAN_PIECE_MOVE_INVALID: u32 = 2;
+const SAN_CASTLES_INVALID: u32 = 3;
+const SAN_NULL_MOVE_INVALID: u32 = 4;
 const SAN_EMPTY_INPUT: u32 = 5;
 const SAN_INVALID_CHARACTER: u32 = 6;
+const PGN_INTEGER_EMPTY: u32 = 1001;
+const PGN_INTEGER_INVALID: u32 = 1002;
+const PGN_STRING_EMPTY: u32 = 1010;
+const PGN_STRING_INVALID: u32 = 1011;
+const PGN_STRING_INVALID_ESCAPE_SEQUENCE: u32 = 1012;
+const PGN_STRING_TOO_LARGE: u32 = 1013;
+const PGN_ESCAPE_COMMENT_EMPTY: u32 = 1020;
+const PGN_ESCAPE_COMMENT_INVALID: u32 = 1021;
+const PGN_NAG_EMPTY: u32 = 1030;
+const PGN_NAG_INVALID: u32 = 1031;
+const PGN_SYMBOL_EMPTY: u32 = 1040;
+const PGN_SYMBOL_INVALID: u32 = 1041;
+const PGN_GAME_RESULT_EMPTY: u32 = 1050;
+const PGN_GAME_RESULT_INVALID: u32 = 1051;
+const PGN_COMMENTARY_EMPTY: u32 = 1060;
+const PGN_COMMENTARY_INVALID: u32 = 1061;
+const PGN_COMMENTARY_TOO_LARGE: u32 = 1062;
 
-fn is_file(i:u8) -> bool {
-    return i >= b'a' && i <= b'h';
-}
-fn is_rank(i:u8) -> bool {
-    return i >= b'1' && i <= b'8';
-}
-fn is_capture(i:u8) -> bool {
-    return i == b'x';
-}
-fn is_equals(i:u8) -> bool {
-    return i == b'=';
-}
-fn is_piece(i:u8) -> bool {
-    return i == b'R' || i == b'N' || i == b'B' || i == b'Q' || i == b'K';
-}
-
-fn is_o(i:u8) -> bool {
-    return i == b'O';
-}
-
-fn is_dash(i:u8) -> bool {
-    return i == b'-';
-}
-
-fn is_zed(i:u8) -> bool {
-    return i == b'Z';
-}
-fn is_zero(i:u8) -> bool {
-    return i == b'0';
-}
-fn is_plus_or_hash(i:u8) -> bool {
-    return i == b'#' || i == b'+';
-}
+fn is_0(i:u8) -> bool { i == b'0' }
+fn is_1(i:u8) -> bool { i == b'1' }
+fn is_2(i:u8) -> bool { i == b'2' }
+fn is_capture(i:u8) -> bool { i == b'x' }
+fn is_dash(i:u8) -> bool { i == b'-' }
+fn is_digit(i:u8) -> bool { i >= b'0' && i <= b'9' }
+fn is_equals(i:u8) -> bool { i == b'=' }
+fn is_file(i:u8) -> bool { i >= b'a' && i <= b'h' }
+fn is_letter(i:u8) -> bool { is_lowercase_letter(i) || is_uppercase_letter(i) }
+fn is_lowercase_letter(i:u8) -> bool { i >= b'a' && i <= b'z' }
+fn is_o(i:u8) -> bool { i == b'O' }
+fn is_piece(i:u8) -> bool { i == b'R' || i == b'N' || i == b'B' || i == b'Q' || i == b'K' }
+fn is_plus_or_hash(i:u8) -> bool { i == b'#' || i == b'+' }
+fn is_rank(i:u8) -> bool { i >= b'1' && i <= b'8' }
+fn is_slash(i:u8) -> bool { i == b'/' }
+fn is_star(i:u8) -> bool { i == b'*' }
+fn is_uppercase_letter(i:u8) -> bool { i >= b'A' && i <= b'Z' }
+fn is_zed(i:u8) -> bool { i == b'Z' }
+fn is_zero(i:u8) -> bool { i == b'0' }
 
 macro_rules! match_character {
     ($name:ident, $($matcher:ident),+) => {
@@ -107,7 +116,7 @@ fn san_pawn_move(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(SAN_INVALID_PAWN_MOVE))
+        None => return IResult::Error(ErrorKind::Custom(SAN_PAWN_MOVE_INVALID))
     }
 }
 
@@ -145,7 +154,7 @@ fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(SAN_INVALID_PIECE_MOVE))
+        None => return IResult::Error(ErrorKind::Custom(SAN_PIECE_MOVE_INVALID))
     }
 }
 
@@ -162,7 +171,7 @@ fn san_castles(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(SAN_INVALID_CASTLES))
+        None => return IResult::Error(ErrorKind::Custom(SAN_CASTLES_INVALID))
     }
 }
 
@@ -181,14 +190,14 @@ fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
     });
     match result {
         Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
-        None => return IResult::Error(ErrorKind::Custom(SAN_INVALID_NULL_MOVE))
+        None => return IResult::Error(ErrorKind::Custom(SAN_NULL_MOVE_INVALID))
     }
 }
 
 
 pub fn san_move(i:&[u8]) -> IResult<&[u8], Token>{
     if i.len() < 1 {
-      return IResult::Error(ErrorKind::Custom(SAN_EMPTY_INPUT));
+        return IResult::Error(ErrorKind::Custom(SAN_EMPTY_INPUT));
     }
     match i[0] {
         b'R' | b'N' | b'B' | b'Q' | b'K' => san_piece_move(i),
@@ -197,6 +206,161 @@ pub fn san_move(i:&[u8]) -> IResult<&[u8], Token>{
         b'-' | b'Z' => san_null_move(i),
         _ => IResult::Error(ErrorKind::Custom(SAN_INVALID_CHARACTER))
     }
+}
+
+// Delimited by quote: ASCII 34
+// \\ -> \
+// \" -> "
+// \t and \n not allowed
+// max of 255 length
+// printable characters, ASCII [32-126]
+//
+// Results still include \" and \\
+//
+// TODO: This does _not_ deal with utf-8
+const MAX_LENGTH: usize = 255;
+pub fn pgn_string_token(i:&[u8]) -> IResult<&[u8], &[u8]>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_STRING_EMPTY));
+    }
+    let mut prev = i[0];
+    if prev != b'"' {
+        return IResult::Error(ErrorKind::Custom(PGN_STRING_INVALID));
+    }
+    let mut length = 1;
+    while length < i.len() {
+        let cur = i[length];
+        if cur == b'"' && prev != b'\\' {
+            break;
+        } else if prev == b'\\' && (cur != b'\\' && cur != b'"') {
+            return IResult::Error(ErrorKind::Custom(PGN_STRING_INVALID_ESCAPE_SEQUENCE));
+        } else if cur < 32u8 || cur > 126u8 {
+            return IResult::Error(ErrorKind::Custom(PGN_STRING_INVALID_ESCAPE_SEQUENCE));
+        }
+        prev = cur;
+        length += 1;
+        if length > MAX_LENGTH {
+            return IResult::Error(ErrorKind::Custom(PGN_STRING_TOO_LARGE));
+        }
+        
+    }
+    // Ensure we skip over the quotes
+    IResult::Done(&i[length+1..], &i[1..length])
+}
+
+pub fn pgn_integer_token(i:&[u8]) -> IResult<&[u8], Token>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_INTEGER_EMPTY));
+    }
+    let mut length = 0;
+    while length < i.len() && i[length] >= b'0' && i[length] <= b'9' {
+        length += 1
+    }
+    if length == 0 {
+        return IResult::Error(ErrorKind::Custom(PGN_INTEGER_INVALID));
+    } else {
+        IResult::Done(&i[length..], Token::Integer(&i[0..length]))
+    }
+}
+
+pub fn pgn_escape_comment_token(i:&[u8]) -> IResult<&[u8], Token>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_ESCAPE_COMMENT_EMPTY));
+    }
+    if i[0] != b'%' {
+        return IResult::Error(ErrorKind::Custom(PGN_ESCAPE_COMMENT_INVALID));
+    }
+    let mut length = 1;
+    while length < i.len() && i[length] != b'\r' && i[length] != b'\n' {
+        length += 1
+    }
+    IResult::Done(&i[length..], Token::EscapeComment(&i[1..length]))
+}
+
+pub fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_NAG_EMPTY));
+    }
+    if i[0] != b'$' {
+        return IResult::Error(ErrorKind::Custom(PGN_NAG_INVALID));
+    }
+    match pgn_integer_token(&i[1..]) {
+        IResult::Done(_left, Token::Integer(integer)) => IResult::Done(&i[integer.len()+1..], Token::NAG(&i[1..integer.len()+1])),
+        IResult::Incomplete(x) => IResult::Incomplete(x),
+        _ => IResult::Error(ErrorKind::Custom(PGN_NAG_INVALID))
+        
+    }
+}
+
+pub fn pgn_symbol_token(i:&[u8]) -> IResult<&[u8], &[u8]>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_SYMBOL_EMPTY));
+    }
+    if !(is_digit(i[0]) || is_letter(i[0])) {
+        return IResult::Error(ErrorKind::Custom(PGN_SYMBOL_INVALID));
+    }
+    let mut length = 1;
+    while length < i.len() && (
+        is_digit(i[length])
+        || is_letter(i[length])
+        || is_plus_or_hash(i[length])
+        || is_equals(i[length])
+        || i[length] == b':'
+        || i[length] == b'_'
+        || i[length] == b'-'
+    ) {
+        length += 1
+    }
+    IResult::Done(&i[length..], &i[0..length])
+}
+
+match_character![game_ongoing, is_star];
+match_character![game_white_win, is_1, is_dash, is_0];
+match_character![game_black_win, is_0, is_dash, is_1];
+match_character![game_draw, is_1, is_slash, is_2, is_dash, is_1, is_slash, is_2];
+
+pub fn pgn_game_result_token(i:&[u8]) -> IResult<&[u8], Token>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_GAME_RESULT_EMPTY));
+    }
+
+    let result = game_ongoing(i)
+    .or_else(|| game_white_win(i))
+    .or_else(|| game_black_win(i))
+    .or_else(|| game_draw(i));
+    match result {
+        Some(length) => return IResult::Done(&i[length..], Token::Result(&i[0..length])),
+        None => return IResult::Error(ErrorKind::Custom(PGN_GAME_RESULT_INVALID))
+    }
+}
+
+// TODO: ; type comments
+
+// This is somewhat arbitrarily picked to be 2MB. A single commentary token
+// can't exceed that. We need to set _some_ sort of limit, this seems reasonable
+const MAX_COMMENTARY_LENGTH:usize = 2097152;
+pub fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_COMMENTARY_EMPTY));
+    }
+    if i[0] != b'{' {
+        return IResult::Error(ErrorKind::Custom(PGN_COMMENTARY_INVALID));
+    }
+    let mut length = 1;
+    while length < i.len() && i[length] != b'}' {
+        length += 1;
+        if length > MAX_COMMENTARY_LENGTH {
+            return IResult::Error(ErrorKind::Custom(PGN_COMMENTARY_TOO_LARGE));
+        }
+    }
+    // Ensure we skip over the braces.
+    IResult::Done(&i[length+1..], Token::Commentary(&i[1..length]))
+}
+
+// TODO: unsure if this is consistent. This is the only time I am
+//       parsing two tokens into a single token.  Perhaps string/symbol
+//       should not be a token, but rather just a parser.
+pub fn pgn_tag_pair_token(i:&[u8]) -> IResult<&[u8], Token> {
 }
 
 
@@ -317,5 +481,55 @@ mod tests {
         b.iter(|| {
             assert_eq!(Done(&b""[..], Token::Move(b"bxc1=R+")), san_move(b"bxc1=R+"));
         });
+    }
+
+    #[test]
+    fn test_pgn_integer_token() {
+        assert_eq!(Done(&b""[..], Token::Integer(b"99")), pgn_integer_token(b"99"));
+        assert_eq!(Done(&b" e4"[..], Token::Integer(b"99")), pgn_integer_token(b"99 e4"));
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_INTEGER_EMPTY)), pgn_integer_token(b""));
+    }
+
+    #[test]
+    fn test_pgn_string_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_STRING_EMPTY)), pgn_string_token(b""));
+        assert_eq!(Done(&b""[..], &b"aaaaaaa"[..]), pgn_string_token(b"\"aaaaaaa\""));
+        assert_eq!(Done(&b""[..], &b"aaaaaaa \\\" aaaaaaa"[..]), pgn_string_token(b"\"aaaaaaa \\\" aaaaaaa\""));
+        assert_eq!(Done(&b""[..], &b"GER/CCM-E/01-C (GER)"[..]), pgn_string_token(b"\"GER/CCM-E/01-C (GER)\""));
+    }
+
+    #[test]
+    fn test_pgn_escape_comment_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_ESCAPE_COMMENT_EMPTY)), pgn_escape_comment_token(b""));
+        assert_eq!(Done(&b"\n"[..], Token::EscapeComment(b"1234")), pgn_escape_comment_token(b"%1234\n"));
+        assert_eq!(Done(&b"\n"[..], Token::EscapeComment(b"%234")), pgn_escape_comment_token(b"%%234\n"));
+        assert_eq!(Done(&b"\r"[..], Token::EscapeComment(b"% 234")), pgn_escape_comment_token(b"%% 234\r"));
+    }
+
+    #[test]
+    fn test_pgn_nag() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_NAG_EMPTY)), pgn_nag_token(b""));
+        assert_eq!(Done(&b""[..], Token::NAG(b"1234")), pgn_nag_token(b"$1234"));
+        assert_eq!(Done(&b""[..], Token::NAG(b"234")), pgn_nag_token(b"$234"));
+        assert_eq!(Done(&b" e4"[..], Token::NAG(b"234")), pgn_nag_token(b"$234 e4"));
+    }
+
+    #[test]
+    fn test_pgn_symbol_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_SYMBOL_EMPTY)), pgn_symbol_token(b""));
+        assert_eq!(Done(&b""[..], &b"sasd#_+#=:-"[..]), pgn_symbol_token(b"sasd#_+#=:-"));
+        assert_eq!(Done(&b"!()~{}[]"[..], &b"sasd#_+#=:-"[..]), pgn_symbol_token(b"sasd#_+#=:-!()~{}[]"));
+    }
+    #[test]
+    fn test_pgn_game_result_token() {
+        assert_eq!(Done(&b""[..], Token::Result(b"1-0")), pgn_game_result_token(b"1-0"));
+        assert_eq!(Done(&b""[..], Token::Result(b"0-1")), pgn_game_result_token(b"0-1"));
+        assert_eq!(Done(&b""[..], Token::Result(b"1/2-1/2")), pgn_game_result_token(b"1/2-1/2"));
+        assert_eq!(Done(&b""[..], Token::Result(b"*")), pgn_game_result_token(b"*"));
+    }
+    #[test]
+    fn test_pgn_commentary_token() {
+        assert_eq!(Done(&b""[..], Token::Commentary(b"this is a comment")), pgn_commentary_token(b"{this is a comment}"));
+        assert_eq!(Done(&b""[..], Token::Commentary(b"this is a\n comment")), pgn_commentary_token(b"{this is a\n comment}"));
     }
 }
