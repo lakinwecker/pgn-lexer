@@ -25,12 +25,14 @@ use nom::*;
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum Token <'a> {
     Move(&'a [u8]),
-    Integer(&'a [u8]),
     EscapeComment(&'a [u8]),
     NAG(&'a [u8]),
     Result(&'a [u8]),
     Commentary(&'a [u8]),
     TagPair(&'a [u8], &'a [u8]),
+    MoveNumber(&'a [u8], &'a [u8]),
+    StartVariation(&'a [u8]),
+    EndVariation(&'a [u8]),
 }
 
 // TODO: Figure out better error handling
@@ -61,6 +63,13 @@ const PGN_TAG_PAIR_EMPTY: u32 = 1070;
 const PGN_TAG_PAIR_INVALID: u32 = 1071;
 const PGN_TAG_PAIR_INVALID_SYMBOL: u32 = 1072;
 const PGN_TAG_PAIR_INVALID_STRING: u32 = 1073;
+const PGN_MOVE_NUMBER_EMPTY: u32 = 1080;
+const PGN_MOVE_NUMBER_INVALID: u32 = 1081;
+const PGN_START_VARIATION_EMPTY: u32 = 1090;
+const PGN_START_VARIATION_INVALID: u32 = 1091;
+const PGN_END_VARIATION_EMPTY: u32 = 1100;
+const PGN_END_VARIATION_INVALID: u32 = 1101;
+
 
 fn is_0(i:u8) -> bool { i == b'0' }
 fn is_1(i:u8) -> bool { i == b'1' }
@@ -73,6 +82,7 @@ fn is_file(i:u8) -> bool { i >= b'a' && i <= b'h' }
 fn is_letter(i:u8) -> bool { is_lowercase_letter(i) || is_uppercase_letter(i) }
 fn is_lowercase_letter(i:u8) -> bool { i >= b'a' && i <= b'z' }
 fn is_o(i:u8) -> bool { i == b'O' }
+fn is_period(i:u8) -> bool { i == b'.' }
 fn is_piece(i:u8) -> bool { i == b'R' || i == b'N' || i == b'B' || i == b'Q' || i == b'K' }
 fn is_plus_or_hash(i:u8) -> bool { i == b'#' || i == b'+' }
 fn is_rank(i:u8) -> bool { i >= b'1' && i <= b'8' }
@@ -253,7 +263,7 @@ pub fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8]>{
     IResult::Done(&i[length+1..], &i[1..length])
 }
 
-pub fn pgn_integer_token(i:&[u8]) -> IResult<&[u8], Token>{
+pub fn pgn_integer(i:&[u8]) -> IResult<&[u8], &[u8]>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_INTEGER_EMPTY));
     }
@@ -264,7 +274,7 @@ pub fn pgn_integer_token(i:&[u8]) -> IResult<&[u8], Token>{
     if length == 0 {
         return IResult::Error(ErrorKind::Custom(PGN_INTEGER_INVALID));
     } else {
-        IResult::Done(&i[length..], Token::Integer(&i[0..length]))
+        IResult::Done(&i[length..], &i[0..length])
     }
 }
 
@@ -289,8 +299,8 @@ pub fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token>{
     if i[0] != b'$' {
         return IResult::Error(ErrorKind::Custom(PGN_NAG_INVALID));
     }
-    match pgn_integer_token(&i[1..]) {
-        IResult::Done(_left, Token::Integer(integer)) => IResult::Done(&i[integer.len()+1..], Token::NAG(&i[1..integer.len()+1])),
+    match pgn_integer(&i[1..]) {
+        IResult::Done(_left, integer) => IResult::Done(&i[integer.len()+1..], Token::NAG(&i[1..integer.len()+1])),
         IResult::Incomplete(x) => IResult::Incomplete(x),
         _ => IResult::Error(ErrorKind::Custom(PGN_NAG_INVALID))
         
@@ -399,6 +409,76 @@ pub fn pgn_tag_pair_token(i:&[u8]) -> IResult<&[u8], Token> {
         _ => IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID_SYMBOL))
     }
 }
+
+match_character![one_period, is_period];
+match_character![two_periods, is_period, is_period];
+match_character![three_periods, is_period, is_period, is_period];
+
+fn pgn_move_number_token(i:&[u8]) -> IResult<&[u8], Token>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_MOVE_NUMBER_EMPTY));
+    }
+    let result = pgn_integer(i);
+    match result {
+        IResult::Done(i, integer) => {
+            println!("[{:?}] -- [{:?}]", i, integer);
+            let result = three_periods(i)
+                .or_else(|| two_periods(i))
+                .or_else(|| one_period(i))
+                .or_else(|| Some(0));
+            match result {
+                Some(length) => println!("[{:?}]", length),
+                None => println!("nope"),
+            }
+            match result {
+                Some(length) => return IResult::Done(&i[length..], Token::MoveNumber(integer, &i[0..length])),
+                None => return IResult::Done(&i[0..], Token::MoveNumber(integer, &i[0..0])),
+            }
+        },
+        IResult::Incomplete(x) => IResult::Incomplete(x),
+        _ => IResult::Error(ErrorKind::Custom(PGN_MOVE_NUMBER_INVALID))
+    }
+}
+
+fn pgn_start_variation_token(i:&[u8]) -> IResult<&[u8], Token>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_START_VARIATION_EMPTY));
+    }
+    if i[0] == b'(' {
+        return IResult::Done(&i[1..], Token::StartVariation(&i[0..1]));
+    } else {
+        return IResult::Error(ErrorKind::Custom(PGN_START_VARIATION_INVALID));
+    }
+}
+
+fn pgn_end_variation_token(i:&[u8]) -> IResult<&[u8], Token>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_END_VARIATION_EMPTY));
+    }
+    if i[0] == b')' {
+        return IResult::Done(&i[1..], Token::EndVariation(&i[0..1]));
+    } else {
+        return IResult::Error(ErrorKind::Custom(PGN_END_VARIATION_INVALID));
+    }
+}
+
+// A simple PGN token stream. Operates on a byte slice, and streams
+// byte slices of the form Token::
+/*struct PGNTokenIterator {
+    bytes: &u[8],
+}
+
+
+// Implement `Iterator` for `Fibonacci`.
+// The `Iterator` trait only requires a method to be defined for the `next` element.
+impl Iterator for PGNTokenIterator {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Token> {
+
+    }
+}*/
+
 
 
 #[cfg(test)]
@@ -521,10 +601,11 @@ mod tests {
     }
 
     #[test]
-    fn test_pgn_integer_token() {
-        assert_eq!(Done(&b""[..], Token::Integer(b"99")), pgn_integer_token(b"99"));
-        assert_eq!(Done(&b" e4"[..], Token::Integer(b"99")), pgn_integer_token(b"99 e4"));
-        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_INTEGER_EMPTY)), pgn_integer_token(b""));
+    fn test_pgn_integer() {
+        assert_eq!(Done(&b""[..], &b"99"[..]), pgn_integer(b"99"));
+        assert_eq!(Done(&b" e4"[..], &b"99"[..]), pgn_integer(b"99 e4"));
+        assert_eq!(Done(&b"..."[..], &b"99"[..]), pgn_integer(b"99..."));
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_INTEGER_EMPTY)), pgn_integer(b""));
     }
 
     #[test]
@@ -576,5 +657,25 @@ mod tests {
         assert_eq!(IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY)), pgn_tag_pair_token(b""));
         assert_eq!(Done(&b""[..], Token::TagPair(b"Event", b"?")), pgn_tag_pair_token(b"[Event \"?\"]"));
         assert_eq!(Done(&b""[..], Token::TagPair(b"Event", b"Tony Rotella")), pgn_tag_pair_token(b"[Event \"Tony Rotella\"]"));
+    }
+    #[test]
+    fn test_pgn_move_number_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_MOVE_NUMBER_EMPTY)), pgn_move_number_token(b""));
+        assert_eq!(Done(&b""[..], Token::MoveNumber(b"1", b"")), pgn_move_number_token(b"1"));
+        assert_eq!(Done(&b""[..], Token::MoveNumber(b"2", b".")), pgn_move_number_token(b"2."));
+        assert_eq!(Done(&b""[..], Token::MoveNumber(b"49", b"...")), pgn_move_number_token(b"49..."));
+        assert_eq!(Done(&b"."[..], Token::MoveNumber(b"3", b"...")), pgn_move_number_token(b"3...."));
+    }
+    #[test]
+    fn test_pgn_start_variation_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_START_VARIATION_EMPTY)), pgn_start_variation_token(b""));
+        assert_eq!(Done(&b""[..], Token::StartVariation(b"(")), pgn_start_variation_token(b"("));
+        assert_eq!(Done(&b" 1."[..], Token::StartVariation(b"(")), pgn_start_variation_token(b"( 1."));
+    }
+    #[test]
+    fn test_pgn_end_variation() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_END_VARIATION_EMPTY)), pgn_end_variation_token(b""));
+        assert_eq!(Done(&b""[..], Token::EndVariation(b")")), pgn_end_variation_token(b")"));
+        assert_eq!(Done(&b" 1."[..], Token::EndVariation(b")")), pgn_end_variation_token(b") 1."));
     }
 }
