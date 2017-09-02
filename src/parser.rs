@@ -29,8 +29,8 @@ pub enum Token <'a> {
     NAG(&'a [u8]),
     Result(&'a [u8]),
     Commentary(&'a [u8]),
-    TagPair(&'a [u8], &'a [u8]),
-    MoveNumber(&'a [u8], &'a [u8]),
+    TagSymbol(&'a [u8]),
+    TagString(&'a [u8]),
     StartVariation(&'a [u8]),
     EndVariation(&'a [u8]),
 }
@@ -380,7 +380,7 @@ pub fn remove_whitespace(i:&[u8]) -> &[u8] {
     &i[length..]
 }
 
-pub fn pgn_tag_pair_token(i:&[u8]) -> IResult<&[u8], Token> {
+pub fn pgn_tag_symbol_token(i:&[u8]) -> IResult<&[u8], Token> {
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY));
     }
@@ -390,23 +390,30 @@ pub fn pgn_tag_pair_token(i:&[u8]) -> IResult<&[u8], Token> {
     let i = remove_whitespace(&i[1..]);
     match pgn_symbol(i) {
         IResult::Done(i, symbol) => {
-            let i = remove_whitespace(i);
-            match pgn_string(i) {
-                IResult::Done(i, string) => {
-                    let i = remove_whitespace(i);
-                    let x = 0;
-                    if x < i.len() && i[x] == b']' {
-                        return IResult::Done(&i[1..], Token::TagPair(symbol, string));
-                    } else {
-                        return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID));
-                    }
-                },
-                IResult::Incomplete(x) => IResult::Incomplete(x),
-                _ => IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID_STRING))
-            }
+            return IResult::Done(&i[0..], Token::TagSymbol(symbol));
         },
         IResult::Incomplete(x) => IResult::Incomplete(x),
         _ => IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID_SYMBOL))
+    }
+}
+
+pub fn pgn_tag_string_token(i:&[u8]) -> IResult<&[u8], Token> {
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY));
+    }
+    let i = remove_whitespace(&i[0..]);
+    match pgn_string(i) {
+        IResult::Done(i, string) => {
+            let i = remove_whitespace(i);
+            let x = 0;
+            if x < i.len() && i[x] == b']' {
+                return IResult::Done(&i[1..], Token::TagString(string));
+            } else {
+                return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID));
+            }
+        },
+        IResult::Incomplete(x) => IResult::Incomplete(x),
+        _ => IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_INVALID_STRING))
     }
 }
 
@@ -414,25 +421,22 @@ match_character![one_period, is_period];
 match_character![two_periods, is_period, is_period];
 match_character![three_periods, is_period, is_period, is_period];
 
-fn pgn_move_number_token(i:&[u8]) -> IResult<&[u8], Token>{
+fn pgn_move_number_token(i:&[u8]) -> IResult<&[u8], &[u8]>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_MOVE_NUMBER_EMPTY));
     }
     let result = pgn_integer(i);
     match result {
-        IResult::Done(i, integer) => {
-            println!("[{:?}] -- [{:?}]", i, integer);
-            let result = three_periods(i)
-                .or_else(|| two_periods(i))
-                .or_else(|| one_period(i))
-                .or_else(|| Some(0));
+        IResult::Done(left, integer) => {
+            println!("[{:?}] -- [{:?}]", left, integer);
+            let result = three_periods(left)
+                .or_else(|| two_periods(left))
+                .or_else(|| one_period(left))
+                .or_else(|| Some(0)).
+                and_then(|periods_length| Some(integer.len() + periods_length));
             match result {
-                Some(length) => println!("[{:?}]", length),
-                None => println!("nope"),
-            }
-            match result {
-                Some(length) => return IResult::Done(&i[length..], Token::MoveNumber(integer, &i[0..length])),
-                None => return IResult::Done(&i[0..], Token::MoveNumber(integer, &i[0..0])),
+                Some(length) => return IResult::Done(&i[length..], &i[0..length]),
+                None => return IResult::Done(&i[integer.len()..], &i[0..integer.len()]),
             }
         },
         IResult::Incomplete(x) => IResult::Incomplete(x),
@@ -653,18 +657,24 @@ mod tests {
         assert_eq!(Done(&b""[..], Token::Commentary(b"this is a\n comment")), pgn_commentary_token(b"{this is a\n comment}"));
     }
     #[test]
-    fn test_pgn_tag_pair_token() {
-        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY)), pgn_tag_pair_token(b""));
-        assert_eq!(Done(&b""[..], Token::TagPair(b"Event", b"?")), pgn_tag_pair_token(b"[Event \"?\"]"));
-        assert_eq!(Done(&b""[..], Token::TagPair(b"Event", b"Tony Rotella")), pgn_tag_pair_token(b"[Event \"Tony Rotella\"]"));
+    fn test_pgn_tag_symbol_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY)), pgn_tag_symbol_token(b""));
+        assert_eq!(Done(&b" \"?\"]"[..], Token::TagSymbol(b"Event")), pgn_tag_symbol_token(b"[Event \"?\"]"));
+        assert_eq!(Done(&b" \"Tony Rotella\"]"[..], Token::TagSymbol(b"Event")), pgn_tag_symbol_token(b"[Event \"Tony Rotella\"]"));
+    }
+    #[test]
+    fn test_pgn_tag_string_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY)), pgn_tag_string_token(b""));
+        assert_eq!(Done(&b""[..], Token::TagString(b"?")), pgn_tag_string_token(b"\"?\"]"));
+        assert_eq!(Done(&b""[..], Token::TagString(b"Tony Rotella")), pgn_tag_string_token(b"\"Tony Rotella\"]"));
     }
     #[test]
     fn test_pgn_move_number_token() {
         assert_eq!(IResult::Error(ErrorKind::Custom(PGN_MOVE_NUMBER_EMPTY)), pgn_move_number_token(b""));
-        assert_eq!(Done(&b""[..], Token::MoveNumber(b"1", b"")), pgn_move_number_token(b"1"));
-        assert_eq!(Done(&b""[..], Token::MoveNumber(b"2", b".")), pgn_move_number_token(b"2."));
-        assert_eq!(Done(&b""[..], Token::MoveNumber(b"49", b"...")), pgn_move_number_token(b"49..."));
-        assert_eq!(Done(&b"."[..], Token::MoveNumber(b"3", b"...")), pgn_move_number_token(b"3...."));
+        assert_eq!(Done(&b""[..], &b"1"[..]), pgn_move_number_token(b"1"));
+        assert_eq!(Done(&b""[..], &b"2."[..]), pgn_move_number_token(b"2."));
+        assert_eq!(Done(&b""[..], &b"49..."[..]), pgn_move_number_token(b"49..."));
+        assert_eq!(Done(&b"."[..], &b"3..."[..]), pgn_move_number_token(b"3...."));
     }
     #[test]
     fn test_pgn_start_variation_token() {
