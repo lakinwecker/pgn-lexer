@@ -210,7 +210,7 @@ fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
 }
 
 
-pub fn san_move(i:&[u8]) -> IResult<&[u8], Token>{
+fn san_move_token(i:&[u8]) -> IResult<&[u8], Token>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(SAN_EMPTY_INPUT));
     }
@@ -234,7 +234,7 @@ pub fn san_move(i:&[u8]) -> IResult<&[u8], Token>{
 //
 // TODO: This does _not_ deal with utf-8
 const MAX_LENGTH: usize = 255;
-pub fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8]>{
+fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8]>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_STRING_EMPTY));
     }
@@ -263,7 +263,7 @@ pub fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8]>{
     IResult::Done(&i[length+1..], &i[1..length])
 }
 
-pub fn pgn_integer(i:&[u8]) -> IResult<&[u8], &[u8]>{
+fn pgn_integer(i:&[u8]) -> IResult<&[u8], &[u8]>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_INTEGER_EMPTY));
     }
@@ -278,7 +278,7 @@ pub fn pgn_integer(i:&[u8]) -> IResult<&[u8], &[u8]>{
     }
 }
 
-pub fn pgn_escape_comment_token(i:&[u8]) -> IResult<&[u8], Token>{
+fn pgn_escape_comment_token(i:&[u8]) -> IResult<&[u8], Token>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_ESCAPE_COMMENT_EMPTY));
     }
@@ -292,7 +292,7 @@ pub fn pgn_escape_comment_token(i:&[u8]) -> IResult<&[u8], Token>{
     IResult::Done(&i[length..], Token::EscapeComment(&i[1..length]))
 }
 
-pub fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token>{
+fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_NAG_EMPTY));
     }
@@ -307,7 +307,7 @@ pub fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token>{
     }
 }
 
-pub fn pgn_symbol(i:&[u8]) -> IResult<&[u8], &[u8]>{
+fn pgn_symbol(i:&[u8]) -> IResult<&[u8], &[u8]>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_SYMBOL_EMPTY));
     }
@@ -334,7 +334,7 @@ match_character![game_white_win, is_1, is_dash, is_0];
 match_character![game_black_win, is_0, is_dash, is_1];
 match_character![game_draw, is_1, is_slash, is_2, is_dash, is_1, is_slash, is_2];
 
-pub fn pgn_game_result_token(i:&[u8]) -> IResult<&[u8], Token>{
+fn pgn_game_result_token(i:&[u8]) -> IResult<&[u8], Token>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_GAME_RESULT_EMPTY));
     }
@@ -354,7 +354,7 @@ pub fn pgn_game_result_token(i:&[u8]) -> IResult<&[u8], Token>{
 // This is somewhat arbitrarily picked to be 2MB. A single commentary token
 // can't exceed that. We need to set _some_ sort of limit, this seems reasonable
 const MAX_COMMENTARY_LENGTH:usize = 2097152;
-pub fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token>{
+fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_COMMENTARY_EMPTY));
     }
@@ -372,7 +372,7 @@ pub fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token>{
     IResult::Done(&i[length+1..], Token::Commentary(&i[1..length]))
 }
 
-pub fn remove_whitespace(i:&[u8]) -> &[u8] {
+fn remove_whitespace(i:&[u8]) -> &[u8] {
     let mut length = 0;
     while length < i.len() && is_whitespace(i[length]) {
         length += 1;
@@ -380,7 +380,7 @@ pub fn remove_whitespace(i:&[u8]) -> &[u8] {
     &i[length..]
 }
 
-pub fn pgn_tag_symbol_token(i:&[u8]) -> IResult<&[u8], Token> {
+fn pgn_tag_symbol_token(i:&[u8]) -> IResult<&[u8], Token> {
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY));
     }
@@ -397,7 +397,7 @@ pub fn pgn_tag_symbol_token(i:&[u8]) -> IResult<&[u8], Token> {
     }
 }
 
-pub fn pgn_tag_string_token(i:&[u8]) -> IResult<&[u8], Token> {
+fn pgn_tag_string_token(i:&[u8]) -> IResult<&[u8], Token> {
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY));
     }
@@ -466,22 +466,48 @@ fn pgn_end_variation_token(i:&[u8]) -> IResult<&[u8], Token>{
     }
 }
 
-// A simple PGN token stream. Operates on a byte slice, and streams
-// byte slices of the form Token::
-/*struct PGNTokenIterator {
-    bytes: &u[8],
+fn or_else<I, O, E, Op>(res: &IResult<I, O, E>, op: Op) -> IResult<I, O, E>
+    where
+        Op: FnOnce() -> IResult<I, O, E>, 
+{
+    match res {
+        &IResult::Done(i, o) => IResult::Done(i, o),
+        &IResult::Incomplete(_) => op(),
+        &IResult::Error(_) => op(),
+    }
 }
 
+// A simple PGN token stream. Operates on a byte slice, and streams
+// byte slices of the form Token::
+struct PGNTokenIterator<'a> {
+    bytes: &'a [u8],
+}
 
 // Implement `Iterator` for `Fibonacci`.
 // The `Iterator` trait only requires a method to be defined for the `next` element.
-impl Iterator for PGNTokenIterator {
-    type Item = Token;
+impl<'a> Iterator for PGNTokenIterator<'a> {
+    type Item = &'a Token<'a>;
 
-    fn next(&mut self) -> Option<Token> {
-
+    fn next(&mut self) -> Option<&'a Token<'a>> {
+        let i = self.bytes;
+        let mut result = pgn_escape_comment_token(i);
+        result = or_else(&result, || pgn_tag_symbol_token(i));
+        result = or_else(&result, || pgn_tag_string_token(i));
+        result = or_else(&result, || pgn_game_result_token(i));
+        result = or_else(&result, || pgn_start_variation_token(i));
+        result = or_else(&result, || pgn_end_variation_token(i));
+        result = or_else(&result, || pgn_commentary_token(i));
+        result = or_else(&result, || pgn_nag_token(i));
+        result = or_else(&result, || san_move_token(i));
+        match result {
+            IResult::Done(i, ref token) => {
+                self.bytes = i;
+                Some(token)
+            },
+            _ => None
+        }
     }
-}*/
+}
 
 
 
@@ -494,113 +520,113 @@ mod tests {
 
     #[test]
     fn test_san_move_pawn_single_square() {
-        assert_eq!(Done(&b""[..], Token::Move(b"a1")), san_move(b"a1"));
-        assert_eq!(Done(&b""[..], Token::Move(b"a8")), san_move(b"a8"));
-        assert_eq!(Done(&b""[..], Token::Move(b"h1")), san_move(b"h1"));
-        assert_eq!(Done(&b""[..], Token::Move(b"h8")), san_move(b"h8"));
-        assert_eq!(Done(&b""[..], Token::Move(b"e4")), san_move(b"e4"));
-        assert_eq!(Done(&b" e5"[..], Token::Move(b"e4")), san_move(b"e4 e5"));
-        assert_eq!(Done(&b"!! e5"[..], Token::Move(b"e4")), san_move(b"e4!! e5"));
-        assert_eq!(Done(&b"!? e5"[..], Token::Move(b"e4")), san_move(b"e4!? e5"));
-        assert_eq!(Done(&b"!? e5"[..], Token::Move(b"e4")), san_move(b"e4!? e5"));
-        assert_eq!(Done(&b""[..], Token::Move(b"e4=N")), san_move(b"e4=N"));
-        assert_eq!(Done(&b""[..], Token::Move(b"e4=N#")), san_move(b"e4=N#"));
+        assert_eq!(Done(&b""[..], Token::Move(b"a1")), san_move_token(b"a1"));
+        assert_eq!(Done(&b""[..], Token::Move(b"a8")), san_move_token(b"a8"));
+        assert_eq!(Done(&b""[..], Token::Move(b"h1")), san_move_token(b"h1"));
+        assert_eq!(Done(&b""[..], Token::Move(b"h8")), san_move_token(b"h8"));
+        assert_eq!(Done(&b""[..], Token::Move(b"e4")), san_move_token(b"e4"));
+        assert_eq!(Done(&b" e5"[..], Token::Move(b"e4")), san_move_token(b"e4 e5"));
+        assert_eq!(Done(&b"!! e5"[..], Token::Move(b"e4")), san_move_token(b"e4!! e5"));
+        assert_eq!(Done(&b"!? e5"[..], Token::Move(b"e4")), san_move_token(b"e4!? e5"));
+        assert_eq!(Done(&b"!? e5"[..], Token::Move(b"e4")), san_move_token(b"e4!? e5"));
+        assert_eq!(Done(&b""[..], Token::Move(b"e4=N")), san_move_token(b"e4=N"));
+        assert_eq!(Done(&b""[..], Token::Move(b"e4=N#")), san_move_token(b"e4=N#"));
     }
 
     #[test]
     fn test_san_pawn_capture() {
-        assert_eq!(Done(&b""[..], Token::Move(b"bxc1")), san_move(b"bxc1"));
-        assert_eq!(Done(&b""[..], Token::Move(b"axe4")), san_move(b"axe4"));
-        assert_eq!(Done(&b""[..], Token::Move(b"bxc1+")), san_move(b"bxc1+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"bxc1=R+")), san_move(b"bxc1=R+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"bxc1=R#")), san_move(b"bxc1=R#"));
+        assert_eq!(Done(&b""[..], Token::Move(b"bxc1")), san_move_token(b"bxc1"));
+        assert_eq!(Done(&b""[..], Token::Move(b"axe4")), san_move_token(b"axe4"));
+        assert_eq!(Done(&b""[..], Token::Move(b"bxc1+")), san_move_token(b"bxc1+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"bxc1=R+")), san_move_token(b"bxc1=R+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"bxc1=R#")), san_move_token(b"bxc1=R#"));
     }
 
     #[test]
     fn test_san_move_piece_move() {
-        assert_eq!(Done(&b""[..], Token::Move(b"Nf3")), san_move(b"Nf3"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Nf6")), san_move(b"Nf6"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Nf6+")), san_move(b"Nf6+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"N2f6")), san_move(b"N2f6"));
-        assert_eq!(Done(&b""[..], Token::Move(b"N2f6+")), san_move(b"N2f6+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Ng1f3")), san_move(b"Ng1f3"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Ng1f3+")), san_move(b"Ng1f3+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Rd3d1")), san_move(b"Rd3d1"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Rd3d1+")), san_move(b"Rd3d1+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Rd3d1#")), san_move(b"Rd3d1#"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Nf3")), san_move_token(b"Nf3"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Nf6")), san_move_token(b"Nf6"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Nf6+")), san_move_token(b"Nf6+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"N2f6")), san_move_token(b"N2f6"));
+        assert_eq!(Done(&b""[..], Token::Move(b"N2f6+")), san_move_token(b"N2f6+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Ng1f3")), san_move_token(b"Ng1f3"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Ng1f3+")), san_move_token(b"Ng1f3+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Rd3d1")), san_move_token(b"Rd3d1"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Rd3d1+")), san_move_token(b"Rd3d1+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Rd3d1#")), san_move_token(b"Rd3d1#"));
     }
     #[test]
     fn test_san_move_piece_capture() {
-        assert_eq!(Done(&b""[..], Token::Move(b"Nxf3")), san_move(b"Nxf3"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Nxf6")), san_move(b"Nxf6"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Nxf6+")), san_move(b"Nxf6+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"N2xf6")), san_move(b"N2xf6"));
-        assert_eq!(Done(&b""[..], Token::Move(b"N2xf6+")), san_move(b"N2xf6+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Ng1xf3")), san_move(b"Ng1xf3"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Ng1xf3+")), san_move(b"Ng1xf3+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Rd3xd1")), san_move(b"Rd3xd1"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Rd3xd1+")), san_move(b"Rd3xd1+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Rd3xd1#")), san_move(b"Rd3xd1#"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Nxf3")), san_move_token(b"Nxf3"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Nxf6")), san_move_token(b"Nxf6"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Nxf6+")), san_move_token(b"Nxf6+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"N2xf6")), san_move_token(b"N2xf6"));
+        assert_eq!(Done(&b""[..], Token::Move(b"N2xf6+")), san_move_token(b"N2xf6+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Ng1xf3")), san_move_token(b"Ng1xf3"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Ng1xf3+")), san_move_token(b"Ng1xf3+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Rd3xd1")), san_move_token(b"Rd3xd1"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Rd3xd1+")), san_move_token(b"Rd3xd1+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Rd3xd1#")), san_move_token(b"Rd3xd1#"));
     }
 
     #[test]
     fn test_castles() {
-        assert_eq!(Done(&b""[..], Token::Move(b"O-O")), san_move(b"O-O"));
-        assert_eq!(Done(&b""[..], Token::Move(b"O-O-O")), san_move(b"O-O-O"));
-        assert_eq!(Done(&b""[..], Token::Move(b"O-O+")), san_move(b"O-O+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"O-O#")), san_move(b"O-O#"));
-        assert_eq!(Done(&b""[..], Token::Move(b"O-O-O+")), san_move(b"O-O-O+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"O-O-O#")), san_move(b"O-O-O#"));
+        assert_eq!(Done(&b""[..], Token::Move(b"O-O")), san_move_token(b"O-O"));
+        assert_eq!(Done(&b""[..], Token::Move(b"O-O-O")), san_move_token(b"O-O-O"));
+        assert_eq!(Done(&b""[..], Token::Move(b"O-O+")), san_move_token(b"O-O+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"O-O#")), san_move_token(b"O-O#"));
+        assert_eq!(Done(&b""[..], Token::Move(b"O-O-O+")), san_move_token(b"O-O-O+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"O-O-O#")), san_move_token(b"O-O-O#"));
     }
     #[test]
     fn test_null_move() {
-        assert_eq!(Done(&b""[..], Token::Move(b"--")), san_move(b"--"));
-        assert_eq!(Done(&b""[..], Token::Move(b"--+")), san_move(b"--+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"--#")), san_move(b"--#"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Z0")), san_move(b"Z0"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Z0+")), san_move(b"Z0+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Z0#")), san_move(b"Z0#"));
+        assert_eq!(Done(&b""[..], Token::Move(b"--")), san_move_token(b"--"));
+        assert_eq!(Done(&b""[..], Token::Move(b"--+")), san_move_token(b"--+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"--#")), san_move_token(b"--#"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Z0")), san_move_token(b"Z0"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Z0+")), san_move_token(b"Z0+"));
+        assert_eq!(Done(&b""[..], Token::Move(b"Z0#")), san_move_token(b"Z0#"));
     }
     #[bench]
     fn bench_parse_san_move_null(b: &mut Bencher) {
         b.iter(|| {
-            assert_eq!(Done(&b""[..], Token::Move(b"--#")), san_move(b"--#"));
+            assert_eq!(Done(&b""[..], Token::Move(b"--#")), san_move_token(b"--#"));
         });
     }
     #[bench]
     fn bench_parse_san_move_castle_queen_side(b: &mut Bencher) {
         b.iter(|| {
-            assert_eq!(Done(&b""[..], Token::Move(b"O-O-O")), san_move(b"O-O-O"));
+            assert_eq!(Done(&b""[..], Token::Move(b"O-O-O")), san_move_token(b"O-O-O"));
         });
     }
     #[bench]
     fn bench_parse_san_move_castle_king_side(b: &mut Bencher) {
         b.iter(|| {
-            assert_eq!(Done(&b""[..], Token::Move(b"O-O")), san_move(b"O-O"));
+            assert_eq!(Done(&b""[..], Token::Move(b"O-O")), san_move_token(b"O-O"));
         });
     }
     #[bench]
     fn bench_parse_san_move_simple_capture(b: &mut Bencher) {
         b.iter(|| {
-            assert_eq!(Done(&b""[..], Token::Move(b"bxc2")), san_move(b"bxc2"));
+            assert_eq!(Done(&b""[..], Token::Move(b"bxc2")), san_move_token(b"bxc2"));
         });
     }
     #[bench]
     fn bench_parse_san_move_simple(b: &mut Bencher) {
         b.iter(|| {
-            assert_eq!(Done(&b""[..], Token::Move(b"e4")), san_move(b"e4"));
+            assert_eq!(Done(&b""[..], Token::Move(b"e4")), san_move_token(b"e4"));
         });
     }
     #[bench]
     fn bench_parse_san_capture_promotion(b: &mut Bencher) {
         b.iter(|| {
-            assert_eq!(Done(&b""[..], Token::Move(b"bxc1=R")), san_move(b"bxc1=R"));
+            assert_eq!(Done(&b""[..], Token::Move(b"bxc1=R")), san_move_token(b"bxc1=R"));
         });
     }
     #[bench]
     fn bench_parse_san_move_complicated(b: &mut Bencher) {
         b.iter(|| {
-            assert_eq!(Done(&b""[..], Token::Move(b"bxc1=R+")), san_move(b"bxc1=R+"));
+            assert_eq!(Done(&b""[..], Token::Move(b"bxc1=R+")), san_move_token(b"bxc1=R+"));
         });
     }
 
