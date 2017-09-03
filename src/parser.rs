@@ -18,13 +18,15 @@
 //------------------------------------------------------------------------------
 // Parsers for the SAN specification
 //------------------------------------------------------------------------------
-//
+
 use nom::*;
+use std::fmt;
 
 ///-----------------------------------------------------------------------------
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum Token <'a> {
     Move(&'a [u8]),
+    NullMove(&'a [u8]),
     EscapeComment(&'a [u8]),
     NAG(&'a [u8]),
     Result(&'a [u8]),
@@ -33,6 +35,26 @@ pub enum Token <'a> {
     TagString(&'a [u8]),
     StartVariation(&'a [u8]),
     EndVariation(&'a [u8]),
+}
+
+impl<'a> fmt::Display for Token<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // The `f` value implements the `Write` trait, which is what the
+        // write! macro is expecting. Note that this formatting ignores the
+        // various flags provided to format strings.
+        match *self {
+            Token::Move(x) => write!(f, "Move({})", String::from_utf8_lossy(x)),
+            Token::NullMove(x) => write!(f, "NullMove({})", String::from_utf8_lossy(x)),
+            Token::EscapeComment(x) => write!(f, "EscapeComment({})", String::from_utf8_lossy(x)),
+            Token::NAG(x) => write!(f, "NAG({})", String::from_utf8_lossy(x)),
+            Token::Result(x) => write!(f, "Result({})", String::from_utf8_lossy(x)),
+            Token::Commentary(x) => write!(f, "Commentary({})", String::from_utf8_lossy(x)),
+            Token::TagSymbol(x) => write!(f, "TagSymbol({})", String::from_utf8_lossy(x)),
+            Token::TagString(x) => write!(f, "TagString({})", String::from_utf8_lossy(x)),
+            Token::StartVariation(x) => write!(f, "StartVariation({})", String::from_utf8_lossy(x)),
+            Token::EndVariation(x) => write!(f, "EndVariation({})", String::from_utf8_lossy(x)),
+        }
+    }
 }
 
 // TODO: Figure out better error handling
@@ -87,6 +109,7 @@ fn is_piece(i:u8) -> bool { i == b'R' || i == b'N' || i == b'B' || i == b'Q' || 
 fn is_plus_or_hash(i:u8) -> bool { i == b'#' || i == b'+' }
 fn is_rank(i:u8) -> bool { i >= b'1' && i <= b'8' }
 fn is_slash(i:u8) -> bool { i == b'/' }
+fn is_space(i:u8) -> bool { i == b' ' }
 fn is_star(i:u8) -> bool { i == b'*' }
 fn is_uppercase_letter(i:u8) -> bool { i >= b'A' && i <= b'Z' }
 fn is_whitespace(i:u8) -> bool { i == b' ' || i == b'\n' || i == b'\r' || i == b'\t'  }
@@ -204,7 +227,7 @@ fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
         .and_then(|extra_length| Some(length+extra_length));
     });
     match result {
-        Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
+        Some(length) => return IResult::Done(&i[length..], Token::NullMove(&i[0..length])),
         None => return IResult::Error(ErrorKind::Custom(SAN_NULL_MOVE_INVALID))
     }
 }
@@ -248,8 +271,6 @@ fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8]>{
         if cur == b'"' && prev != b'\\' {
             break;
         } else if prev == b'\\' && (cur != b'\\' && cur != b'"') {
-            return IResult::Error(ErrorKind::Custom(PGN_STRING_INVALID_ESCAPE_SEQUENCE));
-        } else if cur < 32u8 || cur > 126u8 {
             return IResult::Error(ErrorKind::Custom(PGN_STRING_INVALID_ESCAPE_SEQUENCE));
         }
         prev = cur;
@@ -380,6 +401,14 @@ fn remove_whitespace(i:&[u8]) -> &[u8] {
     &i[length..]
 }
 
+fn get_spaces(i:&[u8]) -> &[u8] {
+    let mut length = 0;
+    while length < i.len() && is_space(i[length]) {
+        length += 1;
+    }
+    &i[0..length]
+}
+
 fn pgn_tag_symbol_token(i:&[u8]) -> IResult<&[u8], Token> {
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY));
@@ -421,19 +450,20 @@ match_character![one_period, is_period];
 match_character![two_periods, is_period, is_period];
 match_character![three_periods, is_period, is_period, is_period];
 
-fn pgn_move_number_token(i:&[u8]) -> IResult<&[u8], &[u8]>{
+fn pgn_move_number(i:&[u8]) -> IResult<&[u8], &[u8]>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_MOVE_NUMBER_EMPTY));
     }
     let result = pgn_integer(i);
     match result {
         IResult::Done(left, integer) => {
-            println!("[{:?}] -- [{:?}]", left, integer);
+            let ws = get_spaces(left);
+            let left = &left[ws.len()..];
             let result = three_periods(left)
                 .or_else(|| two_periods(left))
                 .or_else(|| one_period(left))
                 .or_else(|| Some(0)).
-                and_then(|periods_length| Some(integer.len() + periods_length));
+                and_then(|periods_length| Some(integer.len() + ws.len() + periods_length));
             match result {
                 Some(length) => return IResult::Done(&i[length..], &i[0..length]),
                 None => return IResult::Done(&i[integer.len()..], &i[0..integer.len()]),
@@ -466,43 +496,54 @@ fn pgn_end_variation_token(i:&[u8]) -> IResult<&[u8], Token>{
     }
 }
 
-fn or_else<I, O, E, Op>(res: &IResult<I, O, E>, op: Op) -> IResult<I, O, E>
+fn or_else<I, O, E, Op>(res: IResult<I, O, E>, op: Op) -> IResult<I, O, E>
     where
         Op: FnOnce() -> IResult<I, O, E>, 
 {
     match res {
-        &IResult::Done(i, o) => IResult::Done(i, o),
-        &IResult::Incomplete(_) => op(),
-        &IResult::Error(_) => op(),
+        IResult::Done(i, o) => IResult::Done(i, o),
+        IResult::Incomplete(_) => op(),
+        IResult::Error(_) => op(),
     }
 }
 
 // A simple PGN token stream. Operates on a byte slice, and streams
 // byte slices of the form Token::
-struct PGNTokenIterator<'a> {
-    bytes: &'a [u8],
+pub struct PGNTokenIterator<'a> {
+    pub bytes: &'a [u8],
 }
 
 // Implement `Iterator` for `Fibonacci`.
 // The `Iterator` trait only requires a method to be defined for the `next` element.
 impl<'a> Iterator for PGNTokenIterator<'a> {
-    type Item = &'a Token<'a>;
+    type Item = Token<'a>;
 
-    fn next(&mut self) -> Option<&'a Token<'a>> {
+    fn next(&mut self) -> Option<Token<'a>> {
         let i = self.bytes;
+        let i = remove_whitespace(i);
         let mut result = pgn_escape_comment_token(i);
-        result = or_else(&result, || pgn_tag_symbol_token(i));
-        result = or_else(&result, || pgn_tag_string_token(i));
-        result = or_else(&result, || pgn_game_result_token(i));
-        result = or_else(&result, || pgn_start_variation_token(i));
-        result = or_else(&result, || pgn_end_variation_token(i));
-        result = or_else(&result, || pgn_commentary_token(i));
-        result = or_else(&result, || pgn_nag_token(i));
-        result = or_else(&result, || san_move_token(i));
+        result = or_else(result, || {
+            match pgn_move_number(i) {
+                IResult::Done(left, _) => {
+                    let left = remove_whitespace(left);
+                    san_move_token(left)
+                },
+                IResult::Incomplete(x) => IResult::Incomplete(x),
+                IResult::Error(e) => IResult::Error(e)
+            }
+        });
+        result = or_else(result, || pgn_game_result_token(i));
+        result = or_else(result, || pgn_tag_symbol_token(i));
+        result = or_else(result, || pgn_tag_string_token(i));
+        result = or_else(result, || pgn_start_variation_token(i));
+        result = or_else(result, || pgn_end_variation_token(i));
+        result = or_else(result, || pgn_commentary_token(i));
+        result = or_else(result, || pgn_nag_token(i));
+        result = or_else(result, || san_move_token(i));
         match result {
-            IResult::Done(i, ref token) => {
+            IResult::Done(i, token) => {
                 self.bytes = i;
-                Some(token)
+                Some(token.clone())
             },
             _ => None
         }
@@ -580,17 +621,17 @@ mod tests {
     }
     #[test]
     fn test_null_move() {
-        assert_eq!(Done(&b""[..], Token::Move(b"--")), san_move_token(b"--"));
-        assert_eq!(Done(&b""[..], Token::Move(b"--+")), san_move_token(b"--+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"--#")), san_move_token(b"--#"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Z0")), san_move_token(b"Z0"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Z0+")), san_move_token(b"Z0+"));
-        assert_eq!(Done(&b""[..], Token::Move(b"Z0#")), san_move_token(b"Z0#"));
+        assert_eq!(Done(&b""[..], Token::NullMove(b"--")), san_move_token(b"--"));
+        assert_eq!(Done(&b""[..], Token::NullMove(b"--+")), san_move_token(b"--+"));
+        assert_eq!(Done(&b""[..], Token::NullMove(b"--#")), san_move_token(b"--#"));
+        assert_eq!(Done(&b""[..], Token::NullMove(b"Z0")), san_move_token(b"Z0"));
+        assert_eq!(Done(&b""[..], Token::NullMove(b"Z0+")), san_move_token(b"Z0+"));
+        assert_eq!(Done(&b""[..], Token::NullMove(b"Z0#")), san_move_token(b"Z0#"));
     }
     #[bench]
     fn bench_parse_san_move_null(b: &mut Bencher) {
         b.iter(|| {
-            assert_eq!(Done(&b""[..], Token::Move(b"--#")), san_move_token(b"--#"));
+            assert_eq!(Done(&b""[..], Token::NullMove(b"--#")), san_move_token(b"--#"));
         });
     }
     #[bench]
@@ -693,14 +734,16 @@ mod tests {
         assert_eq!(IResult::Error(ErrorKind::Custom(PGN_TAG_PAIR_EMPTY)), pgn_tag_string_token(b""));
         assert_eq!(Done(&b""[..], Token::TagString(b"?")), pgn_tag_string_token(b"\"?\"]"));
         assert_eq!(Done(&b""[..], Token::TagString(b"Tony Rotella")), pgn_tag_string_token(b"\"Tony Rotella\"]"));
+        assert_eq!(Done(&b""[..], Token::TagString(b"2016.05.22")), pgn_tag_string_token(b"\"2016.05.22\"]"));
     }
     #[test]
     fn test_pgn_move_number_token() {
-        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_MOVE_NUMBER_EMPTY)), pgn_move_number_token(b""));
-        assert_eq!(Done(&b""[..], &b"1"[..]), pgn_move_number_token(b"1"));
-        assert_eq!(Done(&b""[..], &b"2."[..]), pgn_move_number_token(b"2."));
-        assert_eq!(Done(&b""[..], &b"49..."[..]), pgn_move_number_token(b"49..."));
-        assert_eq!(Done(&b"."[..], &b"3..."[..]), pgn_move_number_token(b"3...."));
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_MOVE_NUMBER_EMPTY)), pgn_move_number(b""));
+        assert_eq!(Done(&b""[..], &b"1"[..]), pgn_move_number(b"1"));
+        assert_eq!(Done(&b""[..], &b"2."[..]), pgn_move_number(b"2."));
+        assert_eq!(Done(&b""[..], &b"49..."[..]), pgn_move_number(b"49..."));
+        assert_eq!(Done(&b"."[..], &b"3..."[..]), pgn_move_number(b"3...."));
+        assert_eq!(Done(&b"."[..], &b"3 ..."[..]), pgn_move_number(b"3 ...."));
     }
     #[test]
     fn test_pgn_start_variation_token() {
@@ -713,5 +756,78 @@ mod tests {
         assert_eq!(IResult::Error(ErrorKind::Custom(PGN_END_VARIATION_EMPTY)), pgn_end_variation_token(b""));
         assert_eq!(Done(&b""[..], Token::EndVariation(b")")), pgn_end_variation_token(b")"));
         assert_eq!(Done(&b" 1."[..], Token::EndVariation(b")")), pgn_end_variation_token(b") 1."));
+    }
+    #[test]
+    fn test_pgn_game_parser() {
+        let results = PGNTokenIterator{bytes: &b"[Event \"World Senior Teams +50\"]
+[Site \"Radebeul GER\"]
+[Date \"2016.07.03\"]
+[Round \"8.2\"]
+[White \"Anastasian, A.\"]
+[Black \"Lewis, An\"]
+[Result \"1-0\"]
+[ECO \"E90\"]
+[WhiteElo \"2532\"]
+[BlackElo \"2269\"]
+[PlyCount \"84\"]
+[EventDate \"2016.06.26\"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O 6. h3 e5 7. d5 Na6 8. Be3 Nh5
+9. Nh2 Qe8 10. Be2 Nf4 11. Bf3 f5 12. a3 Nc5 13. Bxc5 dxc5 14. O-O Qe7 15. Re1
+a6 16. Ne2 Qd6 17. Nf1 Bd7 18. Rb1 b6 19. Nd2 Bh6 20. Nxf4 Bxf4 21. b4 Rae8 22.
+Qc2 Rf6 23. Qc3 Qf8 24. Nb3 cxb4 25. axb4 Bg5 26. Rb2 Rf7 27. Nc1 Qh6 28. Nd3
+fxe4 29. Bxe4 Bxh3 30. gxh3 Qxh3 31. Bg2 Qh4 32. Re4 Qh5 33. Rbe2 Ref8 34. c5
+Bf4 35. Nxe5 Qh2+ 36. Kf1 Rf5 37. Nf3 Qh5 38. Re7 Bh6 39. R2e5 bxc5 40. bxc5
+Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
+        let results: Vec<Token> = results.collect();
+        println!("[{:?}]", results[results.len()-1]);
+        println!("[{:?}]", results[results.len()-2]);
+        // 24 tag tokens
+        // 42 full moves (84 tokens)
+        // 1 result
+        assert_eq!(results.len(), 24+84+1);
+        assert_eq!(results[0], Token::TagSymbol(b"Event"));
+        assert_eq!(results[1], Token::TagString(b"World Senior Teams +50"));
+        assert_eq!(results[2], Token::TagSymbol(b"Site"));
+        assert_eq!(results[3], Token::TagString(b"Radebeul GER"));
+        assert_eq!(results[4], Token::TagSymbol(b"Date"));
+        assert_eq!(results[5], Token::TagString(b"2016.07.03"));
+        assert_eq!(results[6], Token::TagSymbol(b"Round"));
+        assert_eq!(results[7], Token::TagString(b"8.2"));
+
+        let last = results.len()-1;
+        assert_eq!(results[last], Token::Result(b"1-0"));
+        assert_eq!(results[last-1], Token::Move(b"Qh1+"));
+        assert_eq!(results[last-2], Token::Move(b"Ke1"));
+        assert_eq!(results[last-3], Token::NullMove(b"Z0"));
+    }
+    #[bench]
+    fn bench_parse_game(b: &mut Bencher) {
+        b.iter(|| {
+            let results = PGNTokenIterator{bytes: &b"[Event \"World Senior Teams +50\"]
+    [Site \"Radebeul GER\"]
+    [Date \"2016.07.03\"]
+    [Round \"8.2\"]
+    [White \"Anastasian, A.\"]
+    [Black \"Lewis, An\"]
+    [Result \"1-0\"]
+    [ECO \"E90\"]
+    [WhiteElo \"2532\"]
+    [BlackElo \"2269\"]
+    [PlyCount \"84\"]
+    [EventDate \"2016.06.26\"]
+
+    1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O 6. h3 e5 7. d5 Na6 8. Be3 Nh5
+    9. Nh2 Qe8 10. Be2 Nf4 11. Bf3 f5 12. a3 Nc5 13. Bxc5 dxc5 14. O-O Qe7 15. Re1
+    a6 16. Ne2 Qd6 17. Nf1 Bd7 18. Rb1 b6 19. Nd2 Bh6 20. Nxf4 Bxf4 21. b4 Rae8 22.
+    Qc2 Rf6 23. Qc3 Qf8 24. Nb3 cxb4 25. axb4 Bg5 26. Rb2 Rf7 27. Nc1 Qh6 28. Nd3
+    fxe4 29. Bxe4 Bxh3 30. gxh3 Qxh3 31. Bg2 Qh4 32. Re4 Qh5 33. Rbe2 Ref8 34. c5
+    Bf4 35. Nxe5 Qh2+ 36. Kf1 Rf5 37. Nf3 Qh5 38. Re7 Bh6 39. R2e5 bxc5 40. bxc5
+    Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
+            // 24 tag tokens
+            // 42 full moves (84 tokens)
+            // 1 result
+            assert_eq!(results.count(), 24+84+1);
+        });
     }
 }
