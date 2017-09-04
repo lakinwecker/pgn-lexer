@@ -20,24 +20,3 @@ extern crate memmap;
 extern crate nom;
 
 pub mod parser;
-
-use memmap::{Mmap, Protection};
-
-
-fn main() {
-    let file_mmap = Mmap::open_path("/home/lakin/Downloads/160118 to 170513 Lichess Update.pgn", Protection::Read).unwrap();
-    //let file_mmap = Mmap::open_path("/home/lakin/Personal-Repos/rust-pgn-tokenizer/lichess_db_standard_rated_2017-01.pgn", Protection::Read).unwrap();
-    let mut bytes: &[u8] = unsafe { file_mmap.as_slice() };
-    if bytes[0..3] == [239u8, 187u8, 191u8] {
-        bytes = &bytes[3..];
-    }
-    let results = parser::PGNTokenIterator{bytes: bytes};
-    let mut game_count = 0;
-    for x in results {
-        if let parser::Token::Result(_) = x {
-            game_count += 1;
-        }
-    }
-    println!("Games: {}", game_count);
-
-}
