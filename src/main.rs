@@ -14,13 +14,24 @@
 // 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-
 #![feature(test)]
 extern crate test;
 
+extern crate memmap;
+
 extern crate nom;
 pub mod parser;
+use memmap::{Mmap, Protection};
+
 
 fn main() {
-    println!("Hello, world!");
+    let file_mmap = Mmap::open_path("/home/lakin/Downloads/160118 to 170513 Lichess Update.pgn", Protection::Read).unwrap();
+    let mut bytes: &[u8] = unsafe { file_mmap.as_slice() };
+    if bytes[0..3] == [239u8, 187u8, 191u8] {
+        bytes = &bytes[3..];
+    }
+    let results = parser::PGNTokenIterator{bytes: bytes};
+    //let results = results.map(|x| println!("[{}]", x));
+    println!("{}", results.count());
+
 }
