@@ -539,7 +539,7 @@ pub struct PGNTokenIterator<'a> {
 }
 
 impl<'a> PGNTokenIterator<'a> {
-    fn new(bytes: &'a [u8]) -> PGNTokenIterator<'a> {
+    pub fn new(bytes: &'a [u8]) -> PGNTokenIterator<'a> {
         PGNTokenIterator{bytes: bytes}
     }
 }

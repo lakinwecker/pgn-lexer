@@ -10,6 +10,7 @@ readme = "README.md"
 keywords = ["chess", "pgn", "lexer", "tokenizer"]
 categories = ["parser-implementations"]
 license = " GPL-3.0"
+exclude = ["examples/*"]
 
 
 [dependencies]
@@ -18,3 +19,7 @@ lazy_static = "^0.2"
 [dependencies.nom]
 version = "^3.2"
 features = []
+
+[dev-dependencies]
+memmap = "0.5.2"
+clap = "2.26.0"
