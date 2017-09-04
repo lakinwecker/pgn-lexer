@@ -14,9 +14,7 @@ license = " GPL-3.0"
 
 [dependencies]
 lazy_static = "^0.2"
-regex = "^0.2"
-memmap = "0.5.2"
 
 [dependencies.nom]
 version = "^3.2"
-features = ["regexp", "regexp_macros"]
+features = []

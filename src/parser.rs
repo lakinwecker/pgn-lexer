@@ -117,7 +117,6 @@ fn is_space(i:u8) -> bool { i == b' ' }
 fn is_star(i:u8) -> bool { i == b'*' }
 fn is_uppercase_letter(i:u8) -> bool { i >= b'A' && i <= b'Z' }
 fn is_whitespace(i:u8) -> bool { i == b' ' || i == b'\n' || i == b'\r' || i == b'\t'  }
-fn is_zed(i:u8) -> bool { i == b'Z' }
 fn is_zero(i:u8) -> bool { i == b'0' }
 
 macro_rules! match_character {
@@ -221,9 +220,9 @@ fn san_castles(i:&[u8]) -> IResult<&[u8], Token>{
 }
 
 // Z0
-match_character![null_move_z0, is_zed, is_zero];
+match_character![null_move_z0, is_zero];
 // --
-match_character![null_move_dash_dash, is_dash, is_dash];
+match_character![null_move_dash_dash, is_dash];
 
 fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
     let rest = &i[1..];
@@ -548,6 +547,7 @@ impl<'a> Iterator for PGNTokenIterator<'a> {
         let i = self.bytes;
         let i = remove_whitespace(i);
         let mut result = pgn_escape_comment_token(i);
+        result = or_else(result, || pgn_game_result_token(i));
         result = or_else(result, || {
             match pgn_move_number(i) {
                 IResult::Done(left, _) => {
@@ -558,7 +558,6 @@ impl<'a> Iterator for PGNTokenIterator<'a> {
                 IResult::Error(e) => IResult::Error(e)
             }
         });
-        result = or_else(result, || pgn_game_result_token(i));
         result = or_else(result, || pgn_tag_symbol_token(i));
         result = or_else(result, || pgn_tag_string_token(i));
         result = or_else(result, || pgn_start_variation_token(i));
