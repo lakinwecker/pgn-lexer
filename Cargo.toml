@@ -13,7 +13,7 @@ license = " GPL-3.0"
 
 
 [dependencies]
-lazy_static = "*"
+lazy_static = "^0.2"
 regex = "^0.2"
 memmap = "0.5.2"
 
