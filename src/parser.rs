@@ -274,11 +274,13 @@ fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8]>{
     }
     let mut length = 1;
     while length < i.len() {
-        let cur = i[length];
+        let mut cur = i[length];
         if cur == b'"' && prev != b'\\' {
             break;
         } else if prev == b'\\' && (cur != b'\\' && cur != b'"') {
             return IResult::Error(ErrorKind::Custom(PGN_STRING_INVALID_ESCAPE_SEQUENCE));
+        } else if prev == b'\\' && cur == b'\\' {
+            cur = b' '; // fake that this isn't a \, because for escaping purposes it isn'
         }
         prev = cur;
         length += 1;
@@ -717,6 +719,7 @@ mod tests {
         assert_eq!(Done(&b""[..], &b"aaaaaaa"[..]), pgn_string(b"\"aaaaaaa\""));
         assert_eq!(Done(&b""[..], &b"aaaaaaa \\\" aaaaaaa"[..]), pgn_string(b"\"aaaaaaa \\\" aaaaaaa\""));
         assert_eq!(Done(&b""[..], &b"GER/CCM-E/01-C (GER)"[..]), pgn_string(b"\"GER/CCM-E/01-C (GER)\""));
+        assert_eq!(Done(&b" aaaaaaaa"[..], &b"aaaaaaa \\\\"[..]), pgn_string(b"\"aaaaaaa \\\\\" aaaaaaaa"));
     }
 
     #[test]
