@@ -11,9 +11,9 @@
 
 ```
 extern crate memmap;
-extern crate rust_pgn_tokenizer;
+extern crate pgn_lexer;
 
-pub mod parser;
+use pgn_lexer::parser;
 
 use memmap::{Mmap, Protection};
 
