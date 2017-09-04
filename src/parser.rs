@@ -29,6 +29,7 @@ pub enum Token <'a> {
     NullMove(&'a [u8]),
     EscapeComment(&'a [u8]),
     NAG(&'a [u8]),
+    MoveAnnotation(&'a [u8]),
     Result(&'a [u8]),
     Commentary(&'a [u8]),
     TagSymbol(&'a [u8]),
@@ -47,6 +48,7 @@ impl<'a> fmt::Display for Token<'a> {
             Token::NullMove(x) => write!(f, "NullMove({})", String::from_utf8_lossy(x)),
             Token::EscapeComment(x) => write!(f, "EscapeComment({})", String::from_utf8_lossy(x)),
             Token::NAG(x) => write!(f, "NAG({})", String::from_utf8_lossy(x)),
+            Token::MoveAnnotation(x) => write!(f, "MoveAnnotation({})", String::from_utf8_lossy(x)),
             Token::Result(x) => write!(f, "Result({})", String::from_utf8_lossy(x)),
             Token::Commentary(x) => write!(f, "Commentary({})", String::from_utf8_lossy(x)),
             Token::TagSymbol(x) => write!(f, "TagSymbol({})", String::from_utf8_lossy(x)),
@@ -91,6 +93,8 @@ const PGN_START_VARIATION_EMPTY: u32 = 1090;
 const PGN_START_VARIATION_INVALID: u32 = 1091;
 const PGN_END_VARIATION_EMPTY: u32 = 1100;
 const PGN_END_VARIATION_INVALID: u32 = 1101;
+const PGN_MOVE_ANNOTATION_EMPTY: u32 = 1110;
+const PGN_MOVE_ANNOTATION_INVALID: u32 = 1111;
 
 
 fn is_0(i:u8) -> bool { i == b'0' }
@@ -311,6 +315,24 @@ fn pgn_escape_comment_token(i:&[u8]) -> IResult<&[u8], Token>{
         length += 1
     }
     IResult::Done(&i[length..], Token::EscapeComment(&i[1..length]))
+}
+
+const MAX_MOVE_ANNOTATION_LENGTH:usize = 3;
+fn pgn_move_annotation_token(i:&[u8]) -> IResult<&[u8], Token>{
+    if i.len() < 1 {
+        return IResult::Error(ErrorKind::Custom(PGN_MOVE_ANNOTATION_EMPTY));
+    }
+    if i[0] != b'?' && i[0] != b'!' {
+        return IResult::Error(ErrorKind::Custom(PGN_MOVE_ANNOTATION_INVALID));
+    }
+    let mut length = 1;
+    while length < i.len() && length <= MAX_MOVE_ANNOTATION_LENGTH && (
+        i[length] == b'?'
+        || i[length] == b'!'
+    ) {
+        length += 1;
+    }
+    IResult::Done(&i[length..], Token::MoveAnnotation(&i[0..length]))
 }
 
 fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token>{
@@ -539,6 +561,7 @@ impl<'a> Iterator for PGNTokenIterator<'a> {
         result = or_else(result, || pgn_end_variation_token(i));
         result = or_else(result, || pgn_commentary_token(i));
         result = or_else(result, || pgn_nag_token(i));
+        result = or_else(result, || pgn_move_annotation_token(i));
         result = or_else(result, || san_move_token(i));
         match result {
             IResult::Done(i, token) => {
@@ -696,7 +719,21 @@ mod tests {
     }
 
     #[test]
-    fn test_pgn_nag() {
+    fn test_pgn_move_annotation_token() {
+        assert_eq!(IResult::Error(ErrorKind::Custom(PGN_MOVE_ANNOTATION_EMPTY)), pgn_move_annotation_token(b""));
+        assert_eq!(Done(&b""[..], Token::MoveAnnotation(b"!")), pgn_move_annotation_token(b"!"));
+        assert_eq!(Done(&b""[..], Token::MoveAnnotation(b"?")), pgn_move_annotation_token(b"?"));
+        assert_eq!(Done(&b""[..], Token::MoveAnnotation(b"!!")), pgn_move_annotation_token(b"!!"));
+        assert_eq!(Done(&b""[..], Token::MoveAnnotation(b"??")), pgn_move_annotation_token(b"??"));
+        assert_eq!(Done(&b""[..], Token::MoveAnnotation(b"?!")), pgn_move_annotation_token(b"?!"));
+        assert_eq!(Done(&b""[..], Token::MoveAnnotation(b"!?")), pgn_move_annotation_token(b"!?"));
+        assert_eq!(Done(&b" e4"[..], Token::MoveAnnotation(b"!?")), pgn_move_annotation_token(b"!? e4"));
+        assert_eq!(Done(&b" e4"[..], Token::MoveAnnotation(b"!??")), pgn_move_annotation_token(b"!?? e4"));
+    }
+
+
+    #[test]
+    fn test_pgn_nag_token() {
         assert_eq!(IResult::Error(ErrorKind::Custom(PGN_NAG_EMPTY)), pgn_nag_token(b""));
         assert_eq!(Done(&b""[..], Token::NAG(b"1234")), pgn_nag_token(b"$1234"));
         assert_eq!(Done(&b""[..], Token::NAG(b"234")), pgn_nag_token(b"$234"));
@@ -758,7 +795,7 @@ mod tests {
         assert_eq!(Done(&b" 1."[..], Token::EndVariation(b")")), pgn_end_variation_token(b") 1."));
     }
     #[test]
-    fn test_pgn_game_parser() {
+    fn test_pgn_game_parser_1() {
         let results = PGNTokenIterator{bytes: &b"[Event \"World Senior Teams +50\"]
 [Site \"Radebeul GER\"]
 [Date \"2016.07.03\"]
@@ -780,8 +817,6 @@ fxe4 29. Bxe4 Bxh3 30. gxh3 Qxh3 31. Bg2 Qh4 32. Re4 Qh5 33. Rbe2 Ref8 34. c5
 Bf4 35. Nxe5 Qh2+ 36. Kf1 Rf5 37. Nf3 Qh5 38. Re7 Bh6 39. R2e5 bxc5 40. bxc5
 Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
         let results: Vec<Token> = results.collect();
-        println!("[{:?}]", results[results.len()-1]);
-        println!("[{:?}]", results[results.len()-2]);
         // 24 tag tokens
         // 42 full moves (84 tokens)
         // 1 result
@@ -800,6 +835,39 @@ Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
         assert_eq!(results[last-1], Token::Move(b"Qh1+"));
         assert_eq!(results[last-2], Token::Move(b"Ke1"));
         assert_eq!(results[last-3], Token::NullMove(b"Z0"));
+    }
+
+    #[test]
+    fn test_pgn_game_parser_2() {
+        let results = PGNTokenIterator{bytes: &b"[Event \"Rated Blitz game\"]
+[Site \"https://lichess.org/oUDzbB2j\"]
+[White \"exhilarate\"]
+[Black \"Svetlana-55\"]
+[Result \"1-0\"]
+[UTCDate \"2016.12.31\"]
+[UTCTime \"23:00:22\"]
+[WhiteElo \"1570\"]
+[BlackElo \"1630\"]
+[WhiteRatingDiff \"+12\"]
+[BlackRatingDiff \"-12\"]
+[ECO \"B00\"]
+[Opening \"Owen Defense\"]
+[TimeControl \"180+0\"]
+[Termination \"Normal\"]
+
+1. e4 { [%eval 0.26] } 1... b6 { [%eval 0.51] } 2. Nc3 { [%eval 0.51] } 2... Bb7 { [%eval 0.52] } 3. Nf3 { [%eval 0.24] } 3... e6 { [%eval 0.22] } 4. d4 { [%eval 0.29] } 4... d5 { [%eval 0.7] } 5. e5?! { [%eval 0.19] } 5... Ne7 { [%eval 0.29] } 6. Bb5+ { [%eval 0.36] } 6... c6 { [%eval 0.37] } 7. Bd3 { [%eval -0.01] } 7... Nd7?! { [%eval 0.64] } 8. O-O { [%eval 0.58] } 8... g6 { [%eval 0.61] } 9. Bg5 { [%eval 0.47] } 9... h6 { [%eval 0.55] } 10. Be3 { [%eval 0.52] } 10... Qc7 { [%eval 0.81] } 11. Re1 { [%eval 0.83] } 11... O-O-O { [%eval 1.14] } 12. a4 { [%eval 1.0] } 12... g5?! { [%eval 1.51] } 13. a5 { [%eval 1.54] } 13... b5 { [%eval 1.91] } 14. a6 { [%eval 1.89] } 14... Ba8 { [%eval 2.22] } 15. b3?! { [%eval 1.58] } 15... Nb6 { [%eval 1.86] } 16. Ne2 { [%eval 1.77] } 16... Nf5 { [%eval 1.67] } 17. Bd2? { [%eval 0.11] } 17... g4 { [%eval 0.17] } 18. Bxf5 { [%eval 0.24] } 18... gxf3 { [%eval 0.43] } 19. Nf4 { [%eval 0.0] } 19... exf5 { [%eval 0.0] } 20. Qxf3 { [%eval 0.0] } 20... Kb8 { [%eval 0.33] } 21. Ba5 { [%eval -0.11] } 21... Rg8 { [%eval 0.25] } 22. e6? { [%eval -1.27] } 22... fxe6?? { [%eval 2.58] } 23. Nxe6 { [%eval 2.48] } 23... Qd6 { [%eval 2.5] } 24. Nxd8 { [%eval 2.47] } 24... Qxd8 { [%eval 2.18] } 25. Bxb6 { [%eval 2.05] } 25... Qxb6?? { [%eval #13] } 26. Re8+ { [%eval #13] } 26... Kc7 { [%eval #13] } 27. Qf4+?! { [%eval 10.37] } 27... Kd7 { [%eval 28.14] } 28. Rxa8 { [%eval 23.16] } 28... Bd6?! { [%eval #5] } 29. Qxh6?? { [%eval 0.0] } 29... Rxa8 { [%eval 0.0] } 30. Qg7+?! { [%eval -0.77] } 30... Kc8?? { [%eval 8.15] } 31. Re1 { [%eval 7.62] } 31... Qd8? { [%eval #1] } 32. Qb7# 1-0"[..]};
+        let results: Vec<Token> = results.collect();
+        assert_eq!(results[0], Token::TagSymbol(b"Event"));
+        assert_eq!(results[1], Token::TagString(b"Rated Blitz game"));
+        assert_eq!(results[2], Token::TagSymbol(b"Site"));
+        assert_eq!(results[3], Token::TagString(b"https://lichess.org/oUDzbB2j"));
+
+        let last = results.len()-1;
+        assert_eq!(results[last], Token::Result(b"1-0"));
+        assert_eq!(results[last-1], Token::Move(b"Qb7#"));
+        assert_eq!(results[last-2], Token::Commentary(b" [%eval #1] "));
+        assert_eq!(results[last-3], Token::MoveAnnotation(b"?"));
+        assert_eq!(results[last-4], Token::Move(b"Qd8"));
     }
     #[bench]
     fn bench_parse_game(b: &mut Bencher) {
