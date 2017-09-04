@@ -1,4 +1,4 @@
-// This file is part of the samson library.
+// This file is part of the rust-pgn-tokenizer library.
 //
 // Copyright (C) 2017 Lakin Wecker <lakin@wecker.ca>
 // 
@@ -138,81 +138,84 @@ macro_rules! match_character {
 }
 
 match_character![check, is_plus_or_hash];
-match_character![pawn_capture, is_file, is_capture, is_file, is_rank];
-match_character![pawn_move, is_file, is_rank];
+match_character![pawn_capture, is_capture, is_file, is_rank];
+match_character![pawn_move, is_rank];
 match_character![promotion, is_equals, is_piece];
 
 // e4 dxe4 e8=Q dxe8=Q
 fn san_pawn_move(i:&[u8]) -> IResult<&[u8], Token>{
-    let result = pawn_capture(i)
-    .or_else(|| pawn_move(i))
+    let rest = &i[1..];
+    let result = pawn_capture(rest)
+    .or_else(|| pawn_move(rest))
     .and_then(|length| {
-        promotion(&i[length..])
+        promotion(&rest[length..])
         .or_else(|| Some(0))
         .and_then(|l2| {
             let length = length + l2;
-            check(&i[length..])
+            check(&rest[length..])
             .or_else(|| Some(0))
             .and_then(|l3| Some(length + l3))
         })
     });
     match result {
-        Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
+        Some(length) => return IResult::Done(&i[length+1..], Token::Move(&i[0..length+1])),
         None => return IResult::Error(ErrorKind::Custom(SAN_PAWN_MOVE_INVALID))
     }
 }
 
 
 // Ng1xf3
-match_character![piece_capture_with_rank_and_file, is_piece, is_file, is_rank, is_capture, is_file, is_rank];
+match_character![piece_capture_with_rank_and_file, is_file, is_rank, is_capture, is_file, is_rank];
 // N1xf3
-match_character![piece_capture_with_rank, is_piece, is_rank, is_capture, is_file, is_rank];
+match_character![piece_capture_with_rank, is_rank, is_capture, is_file, is_rank];
 // Ngxf3
-match_character![piece_capture_with_file, is_piece, is_file, is_capture, is_file, is_rank];
+match_character![piece_capture_with_file, is_file, is_capture, is_file, is_rank];
 // Nxf3
-match_character![piece_capture, is_piece, is_capture, is_file, is_rank];
+match_character![piece_capture, is_capture, is_file, is_rank];
 // Ng1f3
-match_character![piece_move_with_rank_and_file, is_piece, is_file, is_rank, is_file, is_rank];
+match_character![piece_move_with_rank_and_file, is_file, is_rank, is_file, is_rank];
 // N1f3
-match_character![piece_move_with_rank, is_piece, is_rank, is_file, is_rank];
+match_character![piece_move_with_rank, is_rank, is_file, is_rank];
 // Ngf3
-match_character![piece_move_with_file, is_piece, is_file, is_file, is_rank];
+match_character![piece_move_with_file, is_file, is_file, is_rank];
 // Nf3
-match_character![piece_move, is_piece, is_file, is_rank];
+match_character![piece_move, is_file, is_rank];
 
 fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token>{
-    let result = piece_capture_with_rank_and_file(i)
-    .or_else(|| piece_capture_with_rank(i))
-    .or_else(|| piece_capture_with_file(i))
-    .or_else(|| piece_capture(i))
-    .or_else(|| piece_move_with_rank_and_file(i))
-    .or_else(|| piece_move_with_rank(i))
-    .or_else(|| piece_move_with_file(i))
-    .or_else(|| piece_move(i))
+    let rest = &i[1..];
+    let result = piece_capture_with_rank_and_file(rest)
+    .or_else(|| piece_capture_with_rank(rest))
+    .or_else(|| piece_capture_with_file(rest))
+    .or_else(|| piece_capture(rest))
+    .or_else(|| piece_move_with_rank_and_file(rest))
+    .or_else(|| piece_move_with_rank(rest))
+    .or_else(|| piece_move_with_file(rest))
+    .or_else(|| piece_move(rest))
     .and_then(|length| {
-        check(&i[length..])
+        check(&rest[length..])
         .or_else(|| Some(0))
         .and_then(|l2| Some(length + l2))
     });
     match result {
-        Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
+        Some(length) => return IResult::Done(&i[length+1..], Token::Move(&i[0..length+1])),
         None => return IResult::Error(ErrorKind::Custom(SAN_PIECE_MOVE_INVALID))
     }
 }
 
-match_character![king_side_castles, is_o, is_dash, is_o];
-match_character![queen_side_castles, is_o, is_dash, is_o, is_dash, is_o];
+match_character![king_side_castles, is_dash, is_o];
+match_character![queen_side_castles, is_dash, is_o, is_dash, is_o];
 
 fn san_castles(i:&[u8]) -> IResult<&[u8], Token>{
-    let result = queen_side_castles(i)
-    .or_else(|| king_side_castles(i))
+    let rest = &i[1..];
+    let result = queen_side_castles(rest)
+    .or_else(|| king_side_castles(rest))
     .and_then(|length| {
-        return check(&i[length..])
+        return check(&rest[length..])
         .or_else(|| Some(0))
         .and_then(|extra_length| Some(length+extra_length));
     });
     match result {
-        Some(length) => return IResult::Done(&i[length..], Token::Move(&i[0..length])),
+        Some(length) => return IResult::Done(&i[length+1..], Token::Move(&i[0..length+1])),
         None => return IResult::Error(ErrorKind::Custom(SAN_CASTLES_INVALID))
     }
 }
@@ -223,15 +226,16 @@ match_character![null_move_z0, is_zed, is_zero];
 match_character![null_move_dash_dash, is_dash, is_dash];
 
 fn san_null_move(i:&[u8]) -> IResult<&[u8], Token>{
-    let result = null_move_dash_dash(i)
-    .or_else(|| null_move_z0(i))
+    let rest = &i[1..];
+    let result = null_move_dash_dash(rest)
+    .or_else(|| null_move_z0(rest))
     .and_then(|length| {
-        return check(&i[length..])
+        return check(&rest[length..])
         .or_else(|| Some(0))
         .and_then(|extra_length| Some(length+extra_length));
     });
     match result {
-        Some(length) => return IResult::Done(&i[length..], Token::NullMove(&i[0..length])),
+        Some(length) => return IResult::Done(&i[length+1..], Token::NullMove(&i[0..length+1])),
         None => return IResult::Error(ErrorKind::Custom(SAN_NULL_MOVE_INVALID))
     }
 }
