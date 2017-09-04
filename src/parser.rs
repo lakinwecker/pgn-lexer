@@ -535,7 +535,13 @@ fn or_else<I, O, E, Op>(res: IResult<I, O, E>, op: Op) -> IResult<I, O, E>
 // A simple PGN token stream. Operates on a byte slice, and streams
 // byte slices of the form Token::
 pub struct PGNTokenIterator<'a> {
-    pub bytes: &'a [u8],
+    bytes: &'a [u8],
+}
+
+impl<'a> PGNTokenIterator<'a> {
+    fn new(bytes: &'a [u8]) -> PGNTokenIterator<'a> {
+        PGNTokenIterator{bytes: bytes}
+    }
 }
 
 // Implement `Iterator` for `Fibonacci`.
@@ -799,7 +805,7 @@ mod tests {
     }
     #[test]
     fn test_pgn_game_parser_1() {
-        let results = PGNTokenIterator{bytes: &b"[Event \"World Senior Teams +50\"]
+        let results = PGNTokenIterator::new(&b"[Event \"World Senior Teams +50\"]
 [Site \"Radebeul GER\"]
 [Date \"2016.07.03\"]
 [Round \"8.2\"]
@@ -818,7 +824,7 @@ a6 16. Ne2 Qd6 17. Nf1 Bd7 18. Rb1 b6 19. Nd2 Bh6 20. Nxf4 Bxf4 21. b4 Rae8 22.
 Qc2 Rf6 23. Qc3 Qf8 24. Nb3 cxb4 25. axb4 Bg5 26. Rb2 Rf7 27. Nc1 Qh6 28. Nd3
 fxe4 29. Bxe4 Bxh3 30. gxh3 Qxh3 31. Bg2 Qh4 32. Re4 Qh5 33. Rbe2 Ref8 34. c5
 Bf4 35. Nxe5 Qh2+ 36. Kf1 Rf5 37. Nf3 Qh5 38. Re7 Bh6 39. R2e5 bxc5 40. bxc5
-Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
+Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]);
         let results: Vec<Token> = results.collect();
         // 24 tag tokens
         // 42 full moves (84 tokens)
@@ -842,7 +848,7 @@ Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
 
     #[test]
     fn test_pgn_game_parser_2() {
-        let results = PGNTokenIterator{bytes: &b"[Event \"Rated Blitz game\"]
+        let results = PGNTokenIterator::new(&b"[Event \"Rated Blitz game\"]
 [Site \"https://lichess.org/oUDzbB2j\"]
 [White \"exhilarate\"]
 [Black \"Svetlana-55\"]
@@ -858,7 +864,7 @@ Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
 [TimeControl \"180+0\"]
 [Termination \"Normal\"]
 
-1. e4 { [%eval 0.26] } 1... b6 { [%eval 0.51] } 2. Nc3 { [%eval 0.51] } 2... Bb7 { [%eval 0.52] } 3. Nf3 { [%eval 0.24] } 3... e6 { [%eval 0.22] } 4. d4 { [%eval 0.29] } 4... d5 { [%eval 0.7] } 5. e5?! { [%eval 0.19] } 5... Ne7 { [%eval 0.29] } 6. Bb5+ { [%eval 0.36] } 6... c6 { [%eval 0.37] } 7. Bd3 { [%eval -0.01] } 7... Nd7?! { [%eval 0.64] } 8. O-O { [%eval 0.58] } 8... g6 { [%eval 0.61] } 9. Bg5 { [%eval 0.47] } 9... h6 { [%eval 0.55] } 10. Be3 { [%eval 0.52] } 10... Qc7 { [%eval 0.81] } 11. Re1 { [%eval 0.83] } 11... O-O-O { [%eval 1.14] } 12. a4 { [%eval 1.0] } 12... g5?! { [%eval 1.51] } 13. a5 { [%eval 1.54] } 13... b5 { [%eval 1.91] } 14. a6 { [%eval 1.89] } 14... Ba8 { [%eval 2.22] } 15. b3?! { [%eval 1.58] } 15... Nb6 { [%eval 1.86] } 16. Ne2 { [%eval 1.77] } 16... Nf5 { [%eval 1.67] } 17. Bd2? { [%eval 0.11] } 17... g4 { [%eval 0.17] } 18. Bxf5 { [%eval 0.24] } 18... gxf3 { [%eval 0.43] } 19. Nf4 { [%eval 0.0] } 19... exf5 { [%eval 0.0] } 20. Qxf3 { [%eval 0.0] } 20... Kb8 { [%eval 0.33] } 21. Ba5 { [%eval -0.11] } 21... Rg8 { [%eval 0.25] } 22. e6? { [%eval -1.27] } 22... fxe6?? { [%eval 2.58] } 23. Nxe6 { [%eval 2.48] } 23... Qd6 { [%eval 2.5] } 24. Nxd8 { [%eval 2.47] } 24... Qxd8 { [%eval 2.18] } 25. Bxb6 { [%eval 2.05] } 25... Qxb6?? { [%eval #13] } 26. Re8+ { [%eval #13] } 26... Kc7 { [%eval #13] } 27. Qf4+?! { [%eval 10.37] } 27... Kd7 { [%eval 28.14] } 28. Rxa8 { [%eval 23.16] } 28... Bd6?! { [%eval #5] } 29. Qxh6?? { [%eval 0.0] } 29... Rxa8 { [%eval 0.0] } 30. Qg7+?! { [%eval -0.77] } 30... Kc8?? { [%eval 8.15] } 31. Re1 { [%eval 7.62] } 31... Qd8? { [%eval #1] } 32. Qb7# 1-0"[..]};
+1. e4 { [%eval 0.26] } 1... b6 { [%eval 0.51] } 2. Nc3 { [%eval 0.51] } 2... Bb7 { [%eval 0.52] } 3. Nf3 { [%eval 0.24] } 3... e6 { [%eval 0.22] } 4. d4 { [%eval 0.29] } 4... d5 { [%eval 0.7] } 5. e5?! { [%eval 0.19] } 5... Ne7 { [%eval 0.29] } 6. Bb5+ { [%eval 0.36] } 6... c6 { [%eval 0.37] } 7. Bd3 { [%eval -0.01] } 7... Nd7?! { [%eval 0.64] } 8. O-O { [%eval 0.58] } 8... g6 { [%eval 0.61] } 9. Bg5 { [%eval 0.47] } 9... h6 { [%eval 0.55] } 10. Be3 { [%eval 0.52] } 10... Qc7 { [%eval 0.81] } 11. Re1 { [%eval 0.83] } 11... O-O-O { [%eval 1.14] } 12. a4 { [%eval 1.0] } 12... g5?! { [%eval 1.51] } 13. a5 { [%eval 1.54] } 13... b5 { [%eval 1.91] } 14. a6 { [%eval 1.89] } 14... Ba8 { [%eval 2.22] } 15. b3?! { [%eval 1.58] } 15... Nb6 { [%eval 1.86] } 16. Ne2 { [%eval 1.77] } 16... Nf5 { [%eval 1.67] } 17. Bd2? { [%eval 0.11] } 17... g4 { [%eval 0.17] } 18. Bxf5 { [%eval 0.24] } 18... gxf3 { [%eval 0.43] } 19. Nf4 { [%eval 0.0] } 19... exf5 { [%eval 0.0] } 20. Qxf3 { [%eval 0.0] } 20... Kb8 { [%eval 0.33] } 21. Ba5 { [%eval -0.11] } 21... Rg8 { [%eval 0.25] } 22. e6? { [%eval -1.27] } 22... fxe6?? { [%eval 2.58] } 23. Nxe6 { [%eval 2.48] } 23... Qd6 { [%eval 2.5] } 24. Nxd8 { [%eval 2.47] } 24... Qxd8 { [%eval 2.18] } 25. Bxb6 { [%eval 2.05] } 25... Qxb6?? { [%eval #13] } 26. Re8+ { [%eval #13] } 26... Kc7 { [%eval #13] } 27. Qf4+?! { [%eval 10.37] } 27... Kd7 { [%eval 28.14] } 28. Rxa8 { [%eval 23.16] } 28... Bd6?! { [%eval #5] } 29. Qxh6?? { [%eval 0.0] } 29... Rxa8 { [%eval 0.0] } 30. Qg7+?! { [%eval -0.77] } 30... Kc8?? { [%eval 8.15] } 31. Re1 { [%eval 7.62] } 31... Qd8? { [%eval #1] } 32. Qb7# 1-0"[..]);
         let results: Vec<Token> = results.collect();
         assert_eq!(results[0], Token::TagSymbol(b"Event"));
         assert_eq!(results[1], Token::TagString(b"Rated Blitz game"));
@@ -875,7 +881,7 @@ Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
     #[bench]
     fn bench_parse_game(b: &mut Bencher) {
         b.iter(|| {
-            let results = PGNTokenIterator{bytes: &b"[Event \"World Senior Teams +50\"]
+            let results = PGNTokenIterator::new(&b"[Event \"World Senior Teams +50\"]
     [Site \"Radebeul GER\"]
     [Date \"2016.07.03\"]
     [Round \"8.2\"]
@@ -894,7 +900,7 @@ Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
     Qc2 Rf6 23. Qc3 Qf8 24. Nb3 cxb4 25. axb4 Bg5 26. Rb2 Rf7 27. Nc1 Qh6 28. Nd3
     fxe4 29. Bxe4 Bxh3 30. gxh3 Qxh3 31. Bg2 Qh4 32. Re4 Qh5 33. Rbe2 Ref8 34. c5
     Bf4 35. Nxe5 Qh2+ 36. Kf1 Rf5 37. Nf3 Qh5 38. Re7 Bh6 39. R2e5 bxc5 40. bxc5
-    Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]};
+    Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]);
             // 24 tag tokens
             // 42 full moves (84 tokens)
             // 1 result

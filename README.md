@@ -24,7 +24,7 @@ fn main() {
     if bytes[0..3] == [239u8, 187u8, 191u8] {
         bytes = &bytes[3..];
     }
-    let results = parser::PGNTokenIterator{bytes: bytes};
+    let results = parser::PGNTokenIterator::new(bytes);
     let mut game_count = 0;
     for x in results {
         if let parser::Token::Result(_) = x {

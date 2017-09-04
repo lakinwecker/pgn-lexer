@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ### Fixed
 - Fixed the null move parsing optimization I did late last night.
 - Fixed the example program.
+- Removed memmap as a depenency
+- Made PGNTokenIterator.bytes private and added a ::new constructor
 
 ## [0.1.0]
 ### Added
