@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Fixed the example program.
 - Removed memmap as a depenency
 - Made PGNTokenIterator.bytes private and added a ::new constructor
+- Added an example program to count the games in a pgn file.
 
 ## [0.1.0]
 ### Added
