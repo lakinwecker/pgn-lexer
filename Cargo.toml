@@ -1,6 +1,6 @@
 [package]
 name = "pgn-lexer"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Lakin Wecker <lakin@structuredabstraction.com>"]
 description = "A lexer for PGN files for chess. Provides an iterator over the tokens from a byte stream."
 # documentation = "..."
