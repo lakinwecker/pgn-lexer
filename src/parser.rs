@@ -1,6 +1,6 @@
 // This file is part of the rust-pgn-tokenizer library.
 //
-// Copyright (C) 2017 Lakin Wecker <lakin@wecker.ca>
+// Copyright (C) 2018 Lakin Wecker <lakin@wecker.ca>
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,6 +21,10 @@
 
 use nom::*;
 use std::fmt;
+use memchr;
+use std::io::Read;
+use std::io::ErrorKind as ioErrorKind;
+
 
 ///-----------------------------------------------------------------------------
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
@@ -82,7 +86,7 @@ const PGN_GAME_RESULT_EMPTY: u32 = 1050;
 const PGN_GAME_RESULT_INVALID: u32 = 1051;
 const PGN_COMMENTARY_EMPTY: u32 = 1060;
 const PGN_COMMENTARY_INVALID: u32 = 1061;
-const PGN_COMMENTARY_TOO_LARGE: u32 = 1062;
+//const PGN_COMMENTARY_TOO_LARGE: u32 = 1062;
 const PGN_TAG_PAIR_EMPTY: u32 = 1070;
 const PGN_TAG_PAIR_INVALID: u32 = 1071;
 const PGN_TAG_PAIR_INVALID_SYMBOL: u32 = 1072;
@@ -273,9 +277,11 @@ fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8]>{
         return IResult::Error(ErrorKind::Custom(PGN_STRING_INVALID));
     }
     let mut length = 1;
+    let mut valid = false;
     while length < i.len() {
         let mut cur = i[length];
         if cur == b'"' && prev != b'\\' {
+            valid = true;
             break;
         } else if prev == b'\\' && (cur != b'\\' && cur != b'"') {
             return IResult::Error(ErrorKind::Custom(PGN_STRING_INVALID_ESCAPE_SEQUENCE));
@@ -287,7 +293,9 @@ fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8]>{
         if length > MAX_LENGTH {
             return IResult::Error(ErrorKind::Custom(PGN_STRING_TOO_LARGE));
         }
-        
+    }
+    if !valid {
+        return IResult::Incomplete(Needed::Unknown);
     }
     // Ensure we skip over the quotes
     IResult::Done(&i[length+1..], &i[1..length])
@@ -351,7 +359,6 @@ fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token>{
         IResult::Done(_left, integer) => IResult::Done(&i[integer.len()+1..], Token::NAG(&i[1..integer.len()+1])),
         IResult::Incomplete(x) => IResult::Incomplete(x),
         _ => IResult::Error(ErrorKind::Custom(PGN_NAG_INVALID))
-        
     }
 }
 
@@ -401,7 +408,6 @@ fn pgn_game_result_token(i:&[u8]) -> IResult<&[u8], Token>{
 
 // This is somewhat arbitrarily picked to be 2MB. A single commentary token
 // can't exceed that. We need to set _some_ sort of limit, this seems reasonable
-const MAX_COMMENTARY_LENGTH:usize = 2097152;
 fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token>{
     if i.len() < 1 {
         return IResult::Error(ErrorKind::Custom(PGN_COMMENTARY_EMPTY));
@@ -409,14 +415,7 @@ fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token>{
     if i[0] != b'{' {
         return IResult::Error(ErrorKind::Custom(PGN_COMMENTARY_INVALID));
     }
-    let mut length = 1;
-    while length < i.len() && i[length] != b'}' {
-        length += 1;
-        if length > MAX_COMMENTARY_LENGTH {
-            return IResult::Error(ErrorKind::Custom(PGN_COMMENTARY_TOO_LARGE));
-        }
-    }
-    // Ensure we skip over the braces.
+    let length = memchr::memchr(b'}', &i[1..]).map_or_else(|| i.len(), |p| p + 1);
     IResult::Done(&i[length+1..], Token::Commentary(&i[1..length]))
 }
 
@@ -539,41 +538,47 @@ fn or_else<I, O, E, Op>(res: IResult<I, O, E>, op: Op) -> IResult<I, O, E>
 pub struct PGNTokenIterator<'a> {
     bytes: &'a [u8],
 }
+fn parse_bytes<'a>(bytes: &'a [u8]) -> IResult<&[u8], Token<'a>> {
+    let i = bytes;
+    let i = remove_whitespace(i);
+    let mut result = pgn_escape_comment_token(i);
+    result = or_else(result, || pgn_game_result_token(i));
+    result = or_else(result, || {
+        match pgn_move_number(i) {
+            IResult::Done(left, _) => {
+                let left = remove_whitespace(left);
+                san_move_token(left)
+            },
+            IResult::Incomplete(x) => IResult::Incomplete(x),
+            IResult::Error(e) => IResult::Error(e)
+        }
+    });
+    result = or_else(result, || pgn_tag_symbol_token(i));
+    result = or_else(result, || pgn_tag_string_token(i));
+    result = or_else(result, || pgn_start_variation_token(i));
+    result = or_else(result, || pgn_end_variation_token(i));
+    result = or_else(result, || pgn_commentary_token(i));
+    result = or_else(result, || pgn_nag_token(i));
+    result = or_else(result, || pgn_move_annotation_token(i));
+    result = or_else(result, || san_move_token(i));
+    result
+}
 
 impl<'a> PGNTokenIterator<'a> {
     pub fn new(bytes: &'a [u8]) -> PGNTokenIterator<'a> {
         PGNTokenIterator{bytes: bytes}
     }
+
 }
 
-// Implement `Iterator` for `Fibonacci`.
+// Implement `Iterator` for `Tokens`.
 // The `Iterator` trait only requires a method to be defined for the `next` element.
 impl<'a> Iterator for PGNTokenIterator<'a> {
     type Item = Token<'a>;
 
+
     fn next(&mut self) -> Option<Token<'a>> {
-        let i = self.bytes;
-        let i = remove_whitespace(i);
-        let mut result = pgn_escape_comment_token(i);
-        result = or_else(result, || pgn_game_result_token(i));
-        result = or_else(result, || {
-            match pgn_move_number(i) {
-                IResult::Done(left, _) => {
-                    let left = remove_whitespace(left);
-                    san_move_token(left)
-                },
-                IResult::Incomplete(x) => IResult::Incomplete(x),
-                IResult::Error(e) => IResult::Error(e)
-            }
-        });
-        result = or_else(result, || pgn_tag_symbol_token(i));
-        result = or_else(result, || pgn_tag_string_token(i));
-        result = or_else(result, || pgn_start_variation_token(i));
-        result = or_else(result, || pgn_end_variation_token(i));
-        result = or_else(result, || pgn_commentary_token(i));
-        result = or_else(result, || pgn_nag_token(i));
-        result = or_else(result, || pgn_move_annotation_token(i));
-        result = or_else(result, || san_move_token(i));
+        let result = parse_bytes(&self.bytes);
         match result {
             IResult::Done(i, token) => {
                 self.bytes = i;
@@ -584,6 +589,86 @@ impl<'a> Iterator for PGNTokenIterator<'a> {
     }
 }
 
+pub trait PGNTokenVisitor {
+    fn visit_token(&mut self, token: &Token);
+}
+
+// A token visitor implementation. This is perhaps badly named
+// because this design is focused on using the std::io::Read
+// to get the bytes.
+const BUFFER_SIZE: usize = 4096*100;
+const MIN_BUFFER_SIZE: usize = 4096;
+pub struct PGNTokenVisitorParser<'a, PTV: 'a, R: 'a>
+    where PTV: PGNTokenVisitor,
+          R: Read
+{
+    visitor: &'a mut PTV,
+    reader: &'a mut R
+}
+
+impl<'a, PTV, R> PGNTokenVisitorParser<'a, PTV, R>
+    where PTV: PGNTokenVisitor,
+          R: Read
+{
+    pub fn new(reader: &'a mut R, visitor: &'a mut PTV) -> PGNTokenVisitorParser<'a, PTV, R> {
+        PGNTokenVisitorParser{reader: reader, visitor: visitor}
+    }
+
+    pub fn parse<'b>(&'b mut self) {
+        let mut bytes: Vec<u8> = Vec::with_capacity(BUFFER_SIZE);
+        bytes.resize(BUFFER_SIZE, b' ');
+        let mut reader_has_more = true;
+        let mut read_length: usize = 0;
+        while reader_has_more {
+            //println!("READ!");
+            match self.reader.read(&mut bytes[read_length..]) {
+                Ok(size) => {
+                    if size > 0 {
+                        read_length += size;
+                        //println!("read_length1: {}", read_length);
+                    } else {
+                        reader_has_more = false;
+                    }
+                },
+                Err(e) => {
+                    reader_has_more = match e.kind() {
+                        ioErrorKind::Interrupted => true,
+                        _ => false
+                    };
+                    if !reader_has_more {
+                        //println!("Exiting!: {}", e);
+                    }
+                }
+            }
+            let mut parser_has_more = true;
+            let mut start_index: usize = 0;
+            while parser_has_more {
+                let res = parse_bytes(&bytes[start_index..read_length]);
+                parser_has_more = match res {
+                    IResult::Done(i, token) => {
+                        self.visitor.visit_token(&token);
+                        //println!("start_index: {}, i.len(): {}", start_index, i.len());
+                        //println!("{}", !(i.len() < MIN_BUFFER_SIZE));
+                        start_index = read_length - i.len();
+                        match reader_has_more {
+                            true => !(i.len() < MIN_BUFFER_SIZE),
+                            false => i.len() > 0
+                        }
+                    },
+                    IResult::Incomplete(_) => false,
+                    IResult::Error(_) => false
+                }
+            }
+            //TODO: There must be a cleaner way of doing this.
+            //println!("read_length3: {} start_index: {}", read_length, start_index);
+            read_length -= start_index;
+            for i in 0..read_length {
+                bytes[i] = bytes[start_index + i];
+            }
+            //println!("read_length2: {}", read_length);
+        }
+    }
+}
 
 
 #[cfg(test)]
@@ -592,6 +677,27 @@ mod tests {
     use super::*;
     use nom::IResult::*;
     use test::Bencher;
+    use std::io::Read;
+
+    pub struct TestVisitor {
+        moves: Vec<String>
+    }
+    impl TestVisitor {
+        pub fn new() -> TestVisitor {
+            TestVisitor{moves: Vec::new()}
+        }
+    }
+
+    impl PGNTokenVisitor for TestVisitor {
+        fn visit_token(&mut self, token: &Token) {
+            if let Token::Move(san) = token {
+                if let Ok(s) = String::from_utf8(san.to_owned().to_vec()) {
+                    self.moves.push(s);
+                }
+            }
+        }
+    }
+
 
     #[test]
     fn test_san_move_pawn_single_square() {
@@ -880,6 +986,52 @@ Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]);
         assert_eq!(results[last-2], Token::Commentary(b" [%eval #1] "));
         assert_eq!(results[last-3], Token::MoveAnnotation(b"?"));
         assert_eq!(results[last-4], Token::Move(b"Qd8"));
+    }
+    #[test]
+    fn test_pgn_visitor_parser_1() {
+        let mut pgn: &[u8] = b"[Event \"World Senior Teams +50\"]
+[Site \"Radebeul GER\"]
+[Date \"2016.07.03\"]
+[Round \"8.2\"]
+[White \"Anastasian, A.\"]
+[Black \"Lewis, An\"]
+[Result \"1-0\"]
+[ECO \"E90\"]
+[WhiteElo \"2532\"]
+[BlackElo \"2269\"]
+[PlyCount \"84\"]
+[EventDate \"2016.06.26\"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O 6. h3 e5 7. d5 Na6 8. Be3 Nh5
+9. Nh2 Qe8 10. Be2 Nf4 11. Bf3 f5 12. a3 Nc5 13. Bxc5 dxc5 14. O-O Qe7 15. Re1
+a6 16. Ne2 Qd6 17. Nf1 Bd7 18. Rb1 b6 19. Nd2 Bh6 20. Nxf4 Bxf4 21. b4 Rae8 22.
+Qc2 Rf6 23. Qc3 Qf8 24. Nb3 cxb4 25. axb4 Bg5 26. Rb2 Rf7 27. Nc1 Qh6 28. Nd3
+fxe4 29. Bxe4 Bxh3 30. gxh3 Qxh3 31. Bg2 Qh4 32. Re4 Qh5 33. Rbe2 Ref8 34. c5
+Bf4 35. Nxe5 Qh2+ 36. Kf1 Rf5 37. Nf3 Qh5 38. Re7 Bh6 39. R2e5 bxc5 40. bxc5
+Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0";
+        let mut visitor = TestVisitor::new();
+        let mut reader = BufReader::new(pgn);
+        {
+            let mut parser = PGNTokenVisitorParser::new(&mut reader, &mut visitor);
+            parser.parse();
+        }
+        // 24 tag tokens
+        // 42 full moves (84 tokens)
+        // 1 result
+        assert_eq!(visitor.moves.len(), 83);
+        //assert_eq!(visitor.moves[0], Token::TagSymbol(b"Event"));
+        //assert_eq!(visitor.moves[1], Token::TagString(b"World Senior Teams +50"));
+        //assert_eq!(visitor.moves[2], Token::TagSymbol(b"Site"));
+        //assert_eq!(visitor.moves[3], Token::TagString(b"Radebeul GER"));
+        //assert_eq!(visitor.moves[4], Token::TagSymbol(b"Date"));
+        //assert_eq!(visitor.moves[5], Token::TagString(b"2016.07.03"));
+        //assert_eq!(visitor.moves[6], Token::TagSymbol(b"Round"));
+        //assert_eq!(visitor.moves[7], Token::TagString(b"8.2"));
+
+        let mut last = visitor.moves.len()-1;
+        assert_eq!(visitor.moves[last], "Qh1+");
+        assert_eq!(visitor.moves[last-1], "Ke1");
+        assert_eq!(visitor.moves[last-2], "Bxf3");
     }
     #[bench]
     fn bench_parse_game(b: &mut Bencher) {
