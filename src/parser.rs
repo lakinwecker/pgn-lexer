@@ -68,6 +68,7 @@ impl<'a> fmt::Display for Token<'a> {
 pub enum PgnError<I> {
     SanPawnMoveInvalid,
     SanPieceMoveInvalid,
+    UciPieceMoveInvalid,
     SanCastlesInvalid,
     SanNullMoveInvalid,
     SanEmptyInput,
@@ -117,27 +118,27 @@ impl<I> ParseError<I> for PgnError<I> {
 
 
 
-fn is_0(i:u8) -> bool { i == b'0' }
-fn is_1(i:u8) -> bool { i == b'1' }
-fn is_2(i:u8) -> bool { i == b'2' }
-fn is_capture(i:u8) -> bool { i == b'x' }
-fn is_dash(i:u8) -> bool { i == b'-' }
-fn is_digit(i:u8) -> bool { i >= b'0' && i <= b'9' }
-fn is_equals(i:u8) -> bool { i == b'=' }
-fn is_file(i:u8) -> bool { i >= b'a' && i <= b'h' }
-fn is_letter(i:u8) -> bool { is_lowercase_letter(i) || is_uppercase_letter(i) }
-fn is_lowercase_letter(i:u8) -> bool { i >= b'a' && i <= b'z' }
-fn is_o(i:u8) -> bool { i == b'O' }
-fn is_period(i:u8) -> bool { i == b'.' }
-fn is_piece(i:u8) -> bool { i == b'R' || i == b'N' || i == b'B' || i == b'Q' || i == b'K' }
-fn is_plus_or_hash(i:u8) -> bool { i == b'#' || i == b'+' }
-fn is_rank(i:u8) -> bool { i >= b'1' && i <= b'8' }
-fn is_slash(i:u8) -> bool { i == b'/' }
-fn is_space(i:u8) -> bool { i == b' ' }
-fn is_star(i:u8) -> bool { i == b'*' }
-fn is_uppercase_letter(i:u8) -> bool { i >= b'A' && i <= b'Z' }
-fn is_whitespace(i:u8) -> bool { i == b' ' || i == b'\n' || i == b'\r' || i == b'\t'  }
-fn is_zero(i:u8) -> bool { i == b'0' }
+pub fn is_0(i:u8) -> bool { i == b'0' }
+pub fn is_1(i:u8) -> bool { i == b'1' }
+pub fn is_2(i:u8) -> bool { i == b'2' }
+pub fn is_capture(i:u8) -> bool { i == b'x' }
+pub fn is_dash(i:u8) -> bool { i == b'-' }
+pub fn is_digit(i:u8) -> bool { i >= b'0' && i <= b'9' }
+pub fn is_equals(i:u8) -> bool { i == b'=' }
+pub fn is_file(i:u8) -> bool { i >= b'a' && i <= b'h' }
+pub fn is_letter(i:u8) -> bool { is_lowercase_letter(i) || is_uppercase_letter(i) }
+pub fn is_lowercase_letter(i:u8) -> bool { i >= b'a' && i <= b'z' }
+pub fn is_o(i:u8) -> bool { i == b'O' }
+pub fn is_period(i:u8) -> bool { i == b'.' }
+pub fn is_piece(i:u8) -> bool { i == b'R' || i == b'N' || i == b'B' || i == b'Q' || i == b'K' }
+pub fn is_plus_or_hash(i:u8) -> bool { i == b'#' || i == b'+' }
+pub fn is_rank(i:u8) -> bool { i >= b'1' && i <= b'8' }
+pub fn is_slash(i:u8) -> bool { i == b'/' }
+pub fn is_space(i:u8) -> bool { i == b' ' }
+pub fn is_star(i:u8) -> bool { i == b'*' }
+pub fn is_uppercase_letter(i:u8) -> bool { i >= b'A' && i <= b'Z' }
+pub fn is_whitespace(i:u8) -> bool { i == b' ' || i == b'\n' || i == b'\r' || i == b'\t'  }
+pub fn is_zero(i:u8) -> bool { i == b'0' }
 
 macro_rules! match_character {
     ($name:ident, $($matcher:ident),+) => {
@@ -162,7 +163,7 @@ match_character![pawn_move, is_rank];
 match_character![promotion, is_equals, is_piece];
 
 // e4 dxe4 e8=Q dxe8=Q
-fn san_pawn_move(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn san_pawn_move(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     let rest = &i[1..];
     let result = pawn_capture(rest)
     .or_else(|| pawn_move(rest))
@@ -200,7 +201,7 @@ match_character![piece_move_with_file, is_file, is_file, is_rank];
 // Nf3
 match_character![piece_move, is_file, is_rank];
 
-fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     let rest = &i[1..];
     let result = piece_capture_with_rank_and_file(rest)
     .or_else(|| piece_capture_with_rank(rest))
@@ -221,10 +222,29 @@ fn san_piece_move(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     }
 }
 
+pub fn uci_piece_move(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+    let result = piece_move_with_rank_and_file(i)
+        .and_then(|length| {
+            if length < i.len() {
+                match i[length] {
+                    b'p' | b'n' | b'b' | b'r' | b'q' => Some(length+1),
+                    _ => Some(length)
+                }
+            } else {
+                Some(length)
+            }
+        });
+
+    match result {
+        Some(length) => return Ok((&i[length..], Token::Move(&i[0..length]))),
+        None => return Err(Error(PgnError::UciPieceMoveInvalid))
+    }
+}
+
 match_character![king_side_castles, is_dash, is_o];
 match_character![queen_side_castles, is_dash, is_o, is_dash, is_o];
 
-fn san_castles(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn san_castles(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     let rest = &i[1..];
     let result = queen_side_castles(rest)
     .or_else(|| king_side_castles(rest))
@@ -244,7 +264,7 @@ match_character![null_move_z0, is_zero];
 // --
 match_character![null_move_dash_dash, is_dash];
 
-fn san_null_move(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn san_null_move(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     let rest = &i[1..];
     let result = null_move_dash_dash(rest)
     .or_else(|| null_move_z0(rest))
@@ -260,7 +280,7 @@ fn san_null_move(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
 }
 
 
-fn san_move_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn san_move_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::SanEmptyInput));
     }
@@ -284,7 +304,7 @@ fn san_move_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
 //
 // TODO: This does _not_ deal with utf-8
 const MAX_LENGTH: usize = 255;
-fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
+pub fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnStringEmpty));
     }
@@ -313,7 +333,7 @@ fn pgn_string(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
     Ok((&i[length+1..], &i[1..length]))
 }
 
-fn pgn_integer(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
+pub fn pgn_integer(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnIntegerEmpty));
     }
@@ -328,7 +348,7 @@ fn pgn_integer(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
     }
 }
 
-fn pgn_escape_comment_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn pgn_escape_comment_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnEscapeCommentEmpty));
     }
@@ -343,7 +363,7 @@ fn pgn_escape_comment_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
 }
 
 const MAX_MOVE_ANNOTATION_LENGTH:usize = 3;
-fn pgn_move_annotation_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn pgn_move_annotation_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnMoveAnnotationEmpty));
     }
@@ -360,7 +380,7 @@ fn pgn_move_annotation_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     Ok((&i[length..], Token::MoveAnnotation(&i[0..length])))
 }
 
-fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnNagEmpty));
     }
@@ -375,7 +395,7 @@ fn pgn_nag_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     }
 }
 
-fn pgn_symbol(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
+pub fn pgn_symbol(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnSymbolEmpty));
     }
@@ -402,7 +422,7 @@ match_character![game_white_win, is_1, is_dash, is_0];
 match_character![game_black_win, is_0, is_dash, is_1];
 match_character![game_draw, is_1, is_slash, is_2, is_dash, is_1, is_slash, is_2];
 
-fn pgn_game_result_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn pgn_game_result_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnGameResultEmpty));
     }
@@ -422,7 +442,7 @@ fn pgn_game_result_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
 // This is somewhat arbitrarily picked to be 2MB. A single commentary token
 // can't exceed that. We need to set _some_ sort of limit, this seems reasonable
 const MAX_COMMENTARY_LENGTH:usize = 2097152;
-fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnCommentaryEmpty));
     }
@@ -440,7 +460,7 @@ fn pgn_commentary_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     Ok((&i[length+1..], Token::Commentary(&i[1..length])))
 }
 
-fn remove_whitespace(i:&[u8]) -> &[u8] {
+pub fn remove_whitespace(i:&[u8]) -> &[u8] {
     let mut length = 0;
     while length < i.len() && is_whitespace(i[length]) {
         length += 1;
@@ -448,7 +468,7 @@ fn remove_whitespace(i:&[u8]) -> &[u8] {
     &i[length..]
 }
 
-fn get_spaces(i:&[u8]) -> &[u8] {
+pub fn get_spaces(i:&[u8]) -> &[u8] {
     let mut length = 0;
     while length < i.len() && is_space(i[length]) {
         length += 1;
@@ -456,7 +476,7 @@ fn get_spaces(i:&[u8]) -> &[u8] {
     &i[0..length]
 }
 
-fn pgn_tag_symbol_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>> {
+pub fn pgn_tag_symbol_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>> {
     if i.len() < 1 {
         return Err(Error(PgnError::PgnTagPairEmpty));
     }
@@ -473,7 +493,7 @@ fn pgn_tag_symbol_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>> {
     }
 }
 
-fn pgn_tag_string_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>> {
+pub fn pgn_tag_string_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>> {
     if i.len() < 1 {
         return Err(Error(PgnError::PgnTagPairEmpty));
     }
@@ -497,7 +517,7 @@ match_character![one_period, is_period];
 match_character![two_periods, is_period, is_period];
 match_character![three_periods, is_period, is_period, is_period];
 
-fn pgn_move_number(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
+pub fn pgn_move_number(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnMoveNumberEmpty));
     }
@@ -521,7 +541,7 @@ fn pgn_move_number(i:&[u8]) -> IResult<&[u8], &[u8], PgnError<&str>>{
     }
 }
 
-fn pgn_start_variation_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn pgn_start_variation_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnStartVariationEmpty));
     }
@@ -532,7 +552,7 @@ fn pgn_start_variation_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     }
 }
 
-fn pgn_end_variation_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
+pub fn pgn_end_variation_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     if i.len() < 1 {
         return Err(Error(PgnError::PgnEndVariationEmpty));
     }
@@ -543,7 +563,7 @@ fn pgn_end_variation_token(i:&[u8]) -> IResult<&[u8], Token, PgnError<&str>>{
     }
 }
 
-fn or_else<I, O, E, Op>(res: IResult<I, O, E>, op: Op) -> IResult<I, O, E>
+pub fn or_else<I, O, E, Op>(res: IResult<I, O, E>, op: Op) -> IResult<I, O, E>
     where
         Op: FnOnce() -> IResult<I, O, E>, 
 {
@@ -651,6 +671,15 @@ mod tests {
         assert_eq!(Ok((&b""[..], Token::Move(b"Rd3d1+"))), san_move_token(b"Rd3d1+"));
         assert_eq!(Ok((&b""[..], Token::Move(b"Rd3d1#"))), san_move_token(b"Rd3d1#"));
     }
+
+    #[test]
+    fn test_uci_piece_move() {
+        assert_eq!(Ok((&b""[..], Token::Move(b"g1f3"))), uci_piece_move(b"g1f3"));
+        assert_eq!(Ok((&b""[..], Token::Move(b"d3d1"))), uci_piece_move(b"d3d1"));
+        assert_eq!(Ok((&b""[..], Token::Move(b"d7d8q"))), uci_piece_move(b"d7d8q"));
+        assert_eq!(Ok((&b""[..], Token::Move(b"e7d8q"))), uci_piece_move(b"e7d8q"));
+    }
+
     #[test]
     fn test_san_move_piece_capture() {
         assert_eq!(Ok((&b""[..], Token::Move(b"Nxf3"))), san_move_token(b"Nxf3"));
@@ -683,49 +712,6 @@ mod tests {
         assert_eq!(Ok((&b""[..], Token::NullMove(b"Z0+"))), san_move_token(b"Z0+"));
         assert_eq!(Ok((&b""[..], Token::NullMove(b"Z0#"))), san_move_token(b"Z0#"));
     }
-    /*
-    #[bench]
-    fn bench_parse_san_move_null(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(Ok((&b""[..], Token::NullMove(b"--#"))), san_move_token(b"--#"));
-        });
-    }
-    #[bench]
-    fn bench_parse_san_move_castle_queen_side(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(Ok((&b""[..], Token::Move(b"O-O-O"))), san_move_token(b"O-O-O"));
-        });
-    }
-    #[bench]
-    fn bench_parse_san_move_castle_king_side(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(Ok((&b""[..], Token::Move(b"O-O"))), san_move_token(b"O-O"));
-        });
-    }
-    #[bench]
-    fn bench_parse_san_move_simple_capture(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(Ok((&b""[..], Token::Move(b"bxc2"))), san_move_token(b"bxc2"));
-        });
-    }
-    #[bench]
-    fn bench_parse_san_move_simple(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(Ok((&b""[..], Token::Move(b"e4"))), san_move_token(b"e4"));
-        });
-    }
-    #[bench]
-    fn bench_parse_san_capture_promotion(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(Ok((&b""[..], Token::Move(b"bxc1=R"))), san_move_token(b"bxc1=R"));
-        });
-    }
-    #[bench]
-    fn bench_parse_san_move_complicated(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(Ok((&b""[..], Token::Move(b"bxc1=R+"))), san_move_token(b"bxc1=R+"));
-        });
-    }*/
 
     #[test]
     fn test_pgn_integer() {
@@ -903,35 +889,4 @@ Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]);
         assert_eq!(results[last-3], Token::MoveAnnotation(b"?"));
         assert_eq!(results[last-4], Token::Move(b"Qd8"));
     }
-    /*
-    #[bench]
-    fn bench_parse_game(b: &mut Bencher) {
-        b.iter(|| {
-            let results = PGNTokenIterator::new(&b"[Event \"World Senior Teams +50\"]
-    [Site \"Radebeul GER\"]
-    [Date \"2016.07.03\"]
-    [Round \"8.2\"]
-    [White \"Anastasian, A.\"]
-    [Black \"Lewis, An\"]
-    [Result \"1-0\"]
-    [ECO \"E90\"]
-    [WhiteElo \"2532\"]
-    [BlackElo \"2269\"]
-    [PlyCount \"84\"]
-    [EventDate \"2016.06.26\"]
-
-    1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O 6. h3 e5 7. d5 Na6 8. Be3 Nh5
-    9. Nh2 Qe8 10. Be2 Nf4 11. Bf3 f5 12. a3 Nc5 13. Bxc5 dxc5 14. O-O Qe7 15. Re1
-    a6 16. Ne2 Qd6 17. Nf1 Bd7 18. Rb1 b6 19. Nd2 Bh6 20. Nxf4 Bxf4 21. b4 Rae8 22.
-    Qc2 Rf6 23. Qc3 Qf8 24. Nb3 cxb4 25. axb4 Bg5 26. Rb2 Rf7 27. Nc1 Qh6 28. Nd3
-    fxe4 29. Bxe4 Bxh3 30. gxh3 Qxh3 31. Bg2 Qh4 32. Re4 Qh5 33. Rbe2 Ref8 34. c5
-    Bf4 35. Nxe5 Qh2+ 36. Kf1 Rf5 37. Nf3 Qh5 38. Re7 Bh6 39. R2e5 bxc5 40. bxc5
-    Rxf3 41. Bxf3 Z0 42. Ke1 Qh1+ 1-0"[..]);
-            // 24 tag tokens
-            // 42 full moves (84 tokens)
-            // 1 result
-            assert_eq!(results.count(), 24+84+1);
-        });
-    }
-    */
 }

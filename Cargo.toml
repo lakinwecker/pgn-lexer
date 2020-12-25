@@ -1,6 +1,6 @@
 [package]
 name = "pgn-lexer"
-version = "0.1.1"
+version = "0.2.0-alpha"
 authors = ["Lakin Wecker <lakin@structuredabstraction.com>"]
 edition = "2018"
 description = "A lexer for PGN files for chess. Provides an iterator over the tokens from a byte stream."
@@ -24,3 +24,9 @@ features = []
 [dev-dependencies]
 memmap = "0.5.2"
 clap = "2.26.0"
+criterion = "0.3"
+
+[[bench]]
+name = "parsing"
+harness = false
+
