@@ -2,6 +2,7 @@
 name = "pgn-lexer"
 version = "0.1.1"
 authors = ["Lakin Wecker <lakin@structuredabstraction.com>"]
+edition = "2018"
 description = "A lexer for PGN files for chess. Provides an iterator over the tokens from a byte stream."
 # documentation = "..."
 # homepage = "..."
@@ -17,7 +18,7 @@ exclude = ["examples/*"]
 lazy_static = "^0.2"
 
 [dependencies.nom]
-version = "^3.2"
+version = "6"
 features = []
 
 [dev-dependencies]
